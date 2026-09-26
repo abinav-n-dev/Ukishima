@@ -1,11 +1,15 @@
 Appearance Appearance.qml
+AccentSurface AccentSurface.qml
+AppearanceSub AppearanceSub.qml
 BatterySurface BatterySurface.qml
 BtSurface BtSurface.qml
 Calendar Calendar.qml
 Clipboard Clipboard.qml
 DisplaySurface DisplaySurface.qml
 DockSurface DockSurface.qml
+FontColorSurface FontColorSurface.qml
 FontPicker FontPicker.qml
+GlassSurface GlassSurface.qml
 InterfaceSurface InterfaceSurface.qml
 Launcher Launcher.qml
 Link Link.qml

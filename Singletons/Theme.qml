@@ -19,6 +19,41 @@ Singleton {
     readonly property bool light: mode === "light"
 
     /**
+     * User accent override: a "#rrggbb" hex, empty to follow the scheme. When set
+     * it wins for every warm token below (verm ramps, flame ink, charging glow,
+     * today cell) no matter what the palette mode derives, and the container pair
+     * is rebuilt with darker/lighter math since an arbitrary accent has no
+     * material container colours of its own.
+     */
+    readonly property string customHex: Flags.accentOverride
+    readonly property bool customAccent: customHex.length > 0
+    /** Effective accent base — the override, else the wallpaper/hue accent, else the warm default. */
+    readonly property color accent: customAccent ? customHex : (dyn ? Dyn.primary : "#ff9a64")
+    /** Deep pair, standing in where the scheme has a matugen container colour. */
+    readonly property color accentDeep: customAccent ? Qt.darker(accent, 1.45) : (dyn ? Dyn.primaryContainer : "#a3371f")
+
+    /**
+     * User text-colour override: a "#rrggbb" hex, empty to follow the scheme.
+     * When set it wins for the primary text (cream) and the brightest token
+     * (bright) on every surface. The muted secondaries (dim, faint, iconDim,
+     * subtle, tickRest) keep their own scheme values so sub-copy stays legible
+     * beside a custom colour, and the alpha-derived veils (hair, sheen, frame*)
+     * follow cream automatically.
+     */
+    readonly property string customTextHex: Flags.textOverride
+    readonly property bool customText: customTextHex.length > 0
+
+    /**
+     * Literal "#rrggbb" serialization for the flame canvas ramp, which reads raw
+     * hex strings (a color property would serialize to #aarrggbb and corrupt the
+     * gradient). The dynamic branch passes matugen's own hex through untouched.
+     */
+    function hexOf(c) {
+        function h(x) { return ("0" + Math.round(x * 255).toString(16)).slice(-2); }
+        return "#" + h(c.r) + h(c.g) + h(c.b);
+    }
+
+    /**
      * Bright warm pop shared by the flame glow, charging glyphs, the recording
      * countdown, the unread inbox dot, the calendar's today cell and the held
      * power tile. The dynamic branch uses the wallpaper accent (Dyn.primary):
@@ -26,13 +61,13 @@ Singleton {
      * token to black, while the accent always loads and contrasts the pill
      * surface. The static branches keep the fixed warm hex.
      */
-    readonly property color onGlow: dyn ? Dyn.primary : "#ff9a64"
+    readonly property color onGlow: customAccent ? accent : (dyn ? Dyn.primary : "#ff9a64")
 
-    readonly property color verm:     dyn ? Qt.darker(Dyn.primary, 1.18) : "#c0442b"
-    readonly property color vermLit:  dyn ? Dyn.primary : "#e0563b"
-    readonly property color vermDeep: dyn ? Dyn.primaryContainer : "#a3371f"
-    readonly property color cream:    dyn ? Dyn.cream : (light ? "#2a241f" : "#ececec")
-    readonly property color bright:   dyn ? Dyn.bright : (light ? "#1d1814" : "#ffffff")
+    readonly property color verm:     customAccent ? Qt.darker(accent, 1.18) : (dyn ? Qt.darker(Dyn.primary, 1.18) : "#c0442b")
+    readonly property color vermLit:  customAccent ? accent : (dyn ? Dyn.primary : "#e0563b")
+    readonly property color vermDeep: customAccent ? accentDeep : (dyn ? Dyn.primaryContainer : "#a3371f")
+    readonly property color cream:    customText ? customTextHex : (dyn ? Dyn.cream : (light ? "#2a241f" : "#ececec"))
+    readonly property color bright:   customText ? customTextHex : (dyn ? Dyn.bright : (light ? "#1d1814" : "#ffffff"))
     readonly property color dim:      dyn ? Dyn.dim : (light ? "#6b635c" : "#8c8c8c")
     readonly property color cardTop:  dyn ? Dyn.surfaceContainerHigh : (light ? "#f6f2ec" : "#171717")
     readonly property color cardBot:  dyn ? Dyn.surfaceContainerLow : (light ? "#ece6df" : "#0c0c0c")
@@ -45,13 +80,13 @@ Singleton {
     readonly property color hair:     Qt.alpha(cream, 0.13)
     readonly property color hairSoft: Qt.alpha(cream, 0.08)
     readonly property color sheen:    Qt.alpha(cream, 0.07)
-    readonly property color vermDim:   dyn ? Qt.darker(Dyn.primary, 1.5) : "#8a5440"
-    readonly property color vermDimDeep: dyn ? Qt.darker(Dyn.primary, 2.2) : "#5a3526"
-    readonly property color vermBurn:  dyn ? Qt.darker(Dyn.primaryContainer, 1.1) : "#8a2c14"
+    readonly property color vermDim:   customAccent ? Qt.darker(accent, 1.5) : (dyn ? Qt.darker(Dyn.primary, 1.5) : "#8a5440")
+    readonly property color vermDimDeep: customAccent ? Qt.darker(accent, 2.2) : (dyn ? Qt.darker(Dyn.primary, 2.2) : "#5a3526")
+    readonly property color vermBurn:  customAccent ? Qt.darker(accentDeep, 1.1) : (dyn ? Qt.darker(Dyn.primaryContainer, 1.1) : "#8a2c14")
     readonly property color tickRest:  dyn ? Dyn.tickRest : (light ? "#4a423c" : "#c2c2c2")
     readonly property color threadBg:  Qt.alpha(cream, 0.13)
-    readonly property color flameCore: dyn ? Qt.lighter(onGlow, 1.03) : "#ffd9c2"
-    readonly property color flameGlow: dyn ? onGlow : "#ff9a64"
+    readonly property color flameCore: customAccent ? Qt.lighter(accent, 1.03) : (dyn ? Qt.lighter(onGlow, 1.03) : "#ffd9c2")
+    readonly property color flameGlow: customAccent ? accent : (dyn ? onGlow : "#ff9a64")
 
     /**
      * Flame canvas ramp: literal hex strings (color type won't work), fed
@@ -59,11 +94,11 @@ Singleton {
      * to #aarrggbb and corrupts the gradient render, so the dynamic branch passes
      * matugen's raw hex strings through untouched rather than any Qt.darker math.
      */
-    readonly property string flameInk:   dyn ? Dyn.primary : "#f0795a"
-    readonly property string flameEmber: dyn ? Dyn.primaryContainer : "#7e2812"
-    readonly property string flameBurn:  dyn ? Dyn.primaryContainer : "#8a2c14"
-    readonly property string flameTip:   dyn ? Dyn.onPrimaryContainer : "#ffb38a"
-    readonly property color todayWarm: dyn ? onGlow : "#ffb38a"
+    readonly property string flameInk:   customAccent ? customHex : (dyn ? Dyn.primary : "#f0795a")
+    readonly property string flameEmber: customAccent ? hexOf(accentDeep) : (dyn ? Dyn.primaryContainer : "#7e2812")
+    readonly property string flameBurn:  customAccent ? hexOf(accentDeep) : (dyn ? Dyn.primaryContainer : "#8a2c14")
+    readonly property string flameTip:   customAccent ? hexOf(Qt.lighter(accent, 1.2)) : (dyn ? Dyn.onPrimaryContainer : "#ffb38a")
+    readonly property color todayWarm: customAccent ? accent : (dyn ? onGlow : "#ffb38a")
     readonly property color ghost:     dyn ? Dyn.surfaceContainerHighest : (light ? "#e3ddd5" : "#242424")
     readonly property color frameBg:      Qt.alpha(cream, 0.055)
     readonly property color frameBorder:  Qt.alpha(cream, 0.10)

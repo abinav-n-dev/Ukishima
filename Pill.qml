@@ -110,13 +110,17 @@ Item {
     readonly property bool recorderOpen: surface === "recorder"
     readonly property bool sysmonOpen: surface === "sysmon"
     readonly property bool appearanceOpen: surface === "appearance"
+    readonly property bool appcatOpen: surface === "appcat"
     readonly property bool displayOpen: surface === "display"
     readonly property bool themeOpen: surface === "theme"
+    readonly property bool accentOpen: surface === "accent"
+    readonly property bool glassOpen: surface === "glass"
+    readonly property bool fontColorOpen: surface === "fontcolor"
     readonly property bool interfaceOpen: surface === "interface"
     readonly property bool fontpickerOpen: surface === "fontpicker"
     readonly property bool updateOpen: surface === "update"
     readonly property bool dockOpen: surface === "dock"
-    readonly property bool settingsLike: appearanceOpen || displayOpen || themeOpen || interfaceOpen || fontpickerOpen || updateOpen || dockOpen
+    readonly property bool settingsLike: appearanceOpen || appcatOpen || displayOpen || themeOpen || accentOpen || glassOpen || fontColorOpen || interfaceOpen || fontpickerOpen || updateOpen || dockOpen
     readonly property bool hasMedia: Players.list.length > 0
 
     readonly property var netDevices: (typeof Networking !== "undefined" && Networking && Networking.devices) ? Networking.devices.values : []
@@ -397,8 +401,12 @@ Item {
         recorder:  { size: () => Qt.size(recorderW, surfaceItem("recorder").implicitHeight + 33 * s), ame: () => surfaceItem("recorder") },
         sysmon:    { size: () => Qt.size(sysmonW, surfaceItem("sysmon").implicitHeight + 33 * s), ame: () => surfaceItem("sysmon") },
         appearance: { size: () => Qt.size(settingsW, surfaceItem("appearance").implicitHeight + 29 * s), ame: () => surfaceItem("appearance") },
+        appcat:     { size: () => Qt.size(settingsW, surfaceItem("appcat").implicitHeight + 29 * s), ame: () => surfaceItem("appcat") },
         display:    { size: () => Qt.size(settingsW, surfaceItem("display").implicitHeight + 29 * s), ame: () => surfaceItem("display") },
         theme:      { size: () => Qt.size(settingsW, surfaceItem("theme").implicitHeight + 29 * s), ame: () => surfaceItem("theme") },
+        accent:     { size: () => Qt.size(settingsW, surfaceItem("accent").implicitHeight + 29 * s), ame: () => surfaceItem("accent") },
+        glass:      { size: () => Qt.size(settingsW, surfaceItem("glass").implicitHeight + 29 * s), ame: () => surfaceItem("glass") },
+        fontcolor:  { size: () => Qt.size(settingsW, surfaceItem("fontcolor").implicitHeight + 29 * s), ame: () => surfaceItem("fontcolor") },
         interface:  { size: () => Qt.size(settingsW, surfaceItem("interface").implicitHeight + 29 * s), ame: () => surfaceItem("interface") },
         dock:       { size: () => Qt.size(settingsW, surfaceItem("dock").implicitHeight + 29 * s), ame: () => surfaceItem("dock") },
         fontpicker: { size: () => Qt.size(fontpickerW, surfaceItem("fontpicker").implicitHeight + 29 * s), ame: () => surfaceItem("fontpicker") },
@@ -428,8 +436,12 @@ Item {
         recorder:   () => ldRecorder,
         sysmon:     () => ldSysmon,
         appearance: () => ldAppearance,
+        appcat:     () => ldAppcat,
         display:    () => ldDisplay,
         theme:      () => ldTheme,
+        accent:     () => ldAccent,
+        glass:      () => ldGlass,
+        fontcolor:  () => ldFontcolor,
         interface:  () => ldInterface,
         dock:       () => ldDock,
         fontpicker: () => ldFontpicker,
@@ -595,10 +607,18 @@ Item {
     function rowNavSurface() {
         if (pill.appearanceOpen)
             return ldAppearance.item;
+        if (pill.appcatOpen)
+            return ldAppcat.item;
         if (pill.displayOpen)
             return ldDisplay.item;
         if (pill.themeOpen)
             return ldTheme.item;
+        if (pill.accentOpen)
+            return ldAccent.item;
+        if (pill.glassOpen)
+            return ldGlass.item;
+        if (pill.fontColorOpen)
+            return ldFontcolor.item;
         if (pill.interfaceOpen)
             return ldInterface.item;
         if (pill.dockOpen)
@@ -671,13 +691,16 @@ Item {
 
     /**
      * Step the open surface back one level when its header bar is clicked: a
-     * settings sub-surface (display, theme, interface, font picker) returns to
-     * the appearance index, and the index or any other surface dismisses to the
-     * hover pill. Empty space in the body never triggers this.
+     * settings sub-surface returns to its declared `backSurface` (THEME, ACCENT
+     * and GLASS fold back into the APPEARANCE sub-index, which and the other
+     * categories fold back into the SETTINGS index), and the index or any other
+     * surface dismisses to the hover pill. Empty space in the body never
+     * triggers this.
      */
     function surfaceBack() {
-        if (pill.displayOpen || pill.themeOpen || pill.interfaceOpen || pill.dockOpen || pill.fontpickerOpen) {
-            pill.requestSurface("appearance");
+        const nav = pill.rowNavSurface();
+        if (nav && nav.backSurface && nav.backSurface.length > 0) {
+            pill.requestSurface(nav.backSurface);
             return;
         }
         pill.requestClose();
@@ -2894,6 +2917,19 @@ sourceComponent: Media {
     }
 
     Loader {
+        id: ldAppcat
+        active: false
+        anchors.fill: parent
+        sourceComponent: AppearanceSub {
+            s: pill.s * pill.settingsScale
+            open: pill.appcatOpen
+            morphCloseness: pill.morphCloseness
+            onRequestClose: pill.requestClose()
+            onRequestSurface: (name) => pill.requestSurface(name)
+        }
+    }
+
+    Loader {
         id: ldDisplay
         active: false
         anchors.fill: parent
@@ -2913,6 +2949,45 @@ sourceComponent: Media {
         sourceComponent: ThemeSurface {
             s: pill.s * pill.settingsScale
             open: pill.themeOpen
+            morphCloseness: pill.morphCloseness
+            onRequestClose: pill.requestClose()
+            onRequestSurface: (name) => pill.requestSurface(name)
+        }
+    }
+
+    Loader {
+        id: ldAccent
+        active: false
+        anchors.fill: parent
+        sourceComponent: AccentSurface {
+            s: pill.s * pill.settingsScale
+            open: pill.accentOpen
+            morphCloseness: pill.morphCloseness
+            onRequestClose: pill.requestClose()
+            onRequestSurface: (name) => pill.requestSurface(name)
+        }
+    }
+
+    Loader {
+        id: ldGlass
+        active: false
+        anchors.fill: parent
+        sourceComponent: GlassSurface {
+            s: pill.s * pill.settingsScale
+            open: pill.glassOpen
+            morphCloseness: pill.morphCloseness
+            onRequestClose: pill.requestClose()
+            onRequestSurface: (name) => pill.requestSurface(name)
+        }
+    }
+
+    Loader {
+        id: ldFontcolor
+        active: false
+        anchors.fill: parent
+        sourceComponent: FontColorSurface {
+            s: pill.s * pill.settingsScale
+            open: pill.fontColorOpen
             morphCloseness: pill.morphCloseness
             onRequestClose: pill.requestClose()
             onRequestSurface: (name) => pill.requestSurface(name)

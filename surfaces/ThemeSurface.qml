@@ -7,11 +7,13 @@ import "../Singletons"
 import "../components"
 
 /**
- * 色 THEME sub-surface: the theme switch (light or dark pill, dynamic
- * per-wallpaper, or a manually chosen hue) with the manual hue editor that
- * unfolds beneath it, and the wallpaper folder that feeds the rotation.
- * Reached from the Appearance index and folds back to it on the back chevron
- * or an empty click.
+ * 色 THEME sub-surface: the palette identity — the theme switch (light or dark
+ * pill, dynamic per-wallpaper, or a manually chosen hue) with the manual hue
+ * editor that unfolds beneath it, and the wallpaper folder that feeds the
+ * rotation. The accent override moved to its own 彩 ACCENT sub-surface and the
+ * transparency / copy-contrast toggles to 玻 GLASS, so each concern keeps its
+ * own column. Reached from the Appearance index and folds back to it on the
+ * back chevron or an empty click.
  *
  * Manual palette mode reveals a rainbow hue strip and a dark/light choice; moving
  * either rebuilds the rice colour set from that hue through wallcolors.py --hue
@@ -21,7 +23,7 @@ import "../components"
 SettingsSurface {
     id: root
 
-    backSurface: "appearance"
+    backSurface: "appcat"
     implicitHeight: content.implicitHeight
 
     property string hueArg: String(Math.round(Flags.manualHue))
@@ -87,8 +89,6 @@ SettingsSurface {
 
     rows: [
         { item: paletteRow, kind: "seg", vals: ["light", "dark", "dynamic", "manual"], get: function () { return root.themeMode; }, set: function (v) { root.applyMode(v); } },
-        { item: glassRow, kind: "toggle", get: function () { return Flags.glass; }, set: function (v) { Flags.glass = v; } },
-        { item: glassTextRow, kind: "seg", vals: [0, 0.5, 1], get: function () { return Flags.glassText; }, set: function (v) { Flags.glassText = v; } },
         { item: wpDirRow, kind: "text", activate: function () {
             wpDirRow.editing = !wpDirRow.editing;
             if (wpDirRow.editing) {
@@ -294,10 +294,10 @@ SettingsSurface {
                             if (/^[0-9a-fA-F]{6}$/.test(clean)) {
                                 var c = Qt.color("#" + clean);
                                 if (c.hslHue >= 0) {
-                                    /* QML color hslHue is 0-359, hslSaturation 0-255;
+                                    /* QML color hslHue/hslSaturation are 0-1 fractions;
                                      * the strip stores hue 0-359 and sat 0-1. */
-                                    Flags.manualHue = Math.round(c.hslHue);
-                                    Flags.manualSat = c.hslSaturation / 255;
+                                    Flags.manualHue = Math.round(c.hslHue * 359);
+                                    Flags.manualSat = Math.min(1, c.hslSaturation);
                                 } else {
                                     Flags.manualSat = 0;
                                 }
@@ -309,6 +309,19 @@ SettingsSurface {
 
                         onAccepted: commit()
                         onEditingFinished: commit()
+
+                        /* Enter/Space must apply, not leak into the surface's row
+                         * activation (which would toggle the focused manual row and
+                         * revert the hex). Accepting the key at the field stops it
+                         * before the shell's settings-activate handler sees it. */
+                        Keys.onPressed: (e) => {
+                            if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter) {
+                                commit();
+                                e.accepted = true;
+                            } else if (e.key === Qt.Key_Space) {
+                                e.accepted = true;
+                            }
+                        }
                     }
 
                     Rectangle {
@@ -322,40 +335,6 @@ SettingsSurface {
                         Behavior on opacity { NumberAnimation { duration: Motion.standard; easing.type: Motion.easeStandard } }
                     }
                 }
-            }
-        }
-
-        SettingsRow {
-            id: glassRow
-            surface: root
-            name: "Transparency mode"
-            icon: "droplet"
-            sub: "Translucent pill · desktop shows through"
-
-            LinkToggle {
-                s: root.s
-                on: Flags.glass
-                onToggled: Flags.glass = !Flags.glass
-            }
-        }
-
-        SettingsRow {
-            id: glassTextRow
-            surface: root
-            name: "Text visibility"
-            icon: "type"
-            sub: "Extra contrast for copy on the glass"
-            enabled: Flags.glass
-
-            SettingsSeg {
-                s: root.s
-                options: [
-                    { label: "Off", value: 0 },
-                    { label: "Soft", value: 0.5 },
-                    { label: "Strong", value: 1 }
-                ]
-                value: Flags.glassText || 0
-                onPicked: (v) => Flags.glassText = v
             }
         }
 

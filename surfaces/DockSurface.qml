@@ -325,10 +325,10 @@ SettingsSurface {
                             if (/^[0-9a-fA-F]{6}$/.test(clean)) {
                                 var c = Qt.color("#" + clean);
                                 if (c.hslHue >= 0) {
-                                    /* QML color hslHue is 0-359, hslSaturation 0-255;
+                                    /* QML color hslHue/hslSaturation are 0-1 fractions;
                                      * the strip stores hue 0-359 and sat 0-1. */
-                                    Flags.manualHue = Math.round(c.hslHue);
-                                    Flags.manualSat = c.hslSaturation / 255;
+                                    Flags.manualHue = Math.round(c.hslHue * 359);
+                                    Flags.manualSat = Math.min(1, c.hslSaturation);
                                 } else {
                                     Flags.manualSat = 0;
                                 }
@@ -340,6 +340,19 @@ SettingsSurface {
 
                         onAccepted: commit()
                         onEditingFinished: commit()
+
+                        /* Enter/Space must apply, not leak into the surface's row
+                         * activation (which would toggle the focused manual row and
+                         * revert the hex). Accepting the key at the field stops it
+                         * before the shell's settings-activate handler sees it. */
+                        Keys.onPressed: (e) => {
+                            if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter) {
+                                commit();
+                                e.accepted = true;
+                            } else if (e.key === Qt.Key_Space) {
+                                e.accepted = true;
+                            }
+                        }
                     }
 
                     Rectangle {

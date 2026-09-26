@@ -321,7 +321,7 @@ ShellRoot {
              * stay clear, while the cursor-driven hover (58) may still dip past
              * the band by a few pixels.
              */
-            readonly property real restFaceH: 44 * s
+            readonly property real restFaceH: 44 * s * Flags.pillH
 
                         /** Trimming the reserved band below the pill's bottom lets windows climb, so App gap sets the pill-to-window air without touching the desktop gaps_out. The strip face docks flush to the screen top (its own topGap is zero), so it never adds the margin. */
             readonly property real reservedH: Flags.mainDisplay === "strip"

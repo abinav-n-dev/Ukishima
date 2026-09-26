@@ -6,12 +6,12 @@ import "../Singletons"
 import "../components"
 
 /**
- * 相 APPEARANCE index: the door into the appearance settings, split into six
- * category tiles — DISPLAY (pill layout, clock, glyphs), THEME (colours and the
- * wallpaper folder), FONT (the family picker), INTERFACE (scale, motion,
- * auto-hide), DOCK (the bottom app dock) and UPDATE (pull latest). Picking a
- * tile morphs the pill into that category's sub-surface; the back chevron on
- * each returns here, and an empty click or the cog closes.
+ * 相 SETTINGS index: the door into the settings, split into six category tiles —
+ * DISPLAY (pill layout, clock, glyphs), APPEARANCE (theme, accent, glass and
+ * font colour — opens its own sub-index), FONT (the family picker), INTERFACE
+ * (scale, motion, auto-hide), DOCK (the bottom app dock) and UPDATE (pull
+ * latest). Picking a tile morphs the pill into that category's surface; the
+ * back chevron on each returns here, and an empty click or the cog closes.
  * Reached from the pill's hover row and folds back into it on a dismiss.
  */
 SettingsSurface {
@@ -22,7 +22,7 @@ SettingsSurface {
 
     rows: [
         { item: dispTile, kind: "nav", surface: "display" },
-        { item: themeTile, kind: "nav", surface: "theme" },
+        { item: appearTile, kind: "nav", surface: "appcat" },
         { item: fontTile, kind: "nav", surface: "fontpicker" },
         { item: ifaceTile, kind: "nav", surface: "interface" },
         { item: dockTile, kind: "nav", surface: "dock" },
@@ -62,17 +62,17 @@ SettingsSurface {
         }
 
         SettingsRow {
-            id: themeTile
+            id: appearTile
             surface: root
-            glyph: "色"
-            name: "Theme"
-            sub: "Light, dark, dynamic or manual"
+            glyph: "相"
+            name: "Appearance"
+            sub: "Theme, accent, glass, font"
 
             GlyphIcon {
                 width: 16 * root.s
                 height: 16 * root.s
                 name: "chevron-right"
-                color: root.focusRowItem === themeTile ? Theme.cream : Theme.iconDim
+                color: root.focusRowItem === appearTile ? Theme.cream : Theme.iconDim
                 stroke: 1.9
             }
         }
