@@ -10,10 +10,12 @@ import "../components"
  * 泊 DOCK sub-surface: the bottom app dock — its on/off switch and the dock's
  * own auto-hide, theme, glass depth and minimal flavour. The dock theme row
  * mirrors the pill's Theme surface (light / dark / dynamic / manual) so the
- * dock can hold its own palette independently of the pill; dynamic and manual
- * rebuild the shared rice palette through wallcolors.py exactly like the pill
- * does. Reached from the Appearance index and folds back to it on the back
- * chevron or an empty click.
+ * dock holds its own palette, fully segregated from the pill: manual renders
+ * locally from the dock's own hue flags (PaletteHue), dynamic reads the shared
+ * wallpaper palette (Dyn) that only wallpaper changes refresh, and light/dark
+ * are static. Switching the dock theme never rewrites colors.json, so the pill
+ * stays untouched — and vice versa. Reached from the Appearance index and folds
+ * back to it on the back chevron or an empty click.
  */
 SettingsSurface {
     id: root
@@ -21,68 +23,38 @@ SettingsSurface {
     backSurface: "appearance"
     implicitHeight: content.implicitHeight
 
-    property string hueArg: String(Math.round(Flags.manualHue))
-    property string modeArg: Flags.manualDark ? "dark" : "light"
-    property string satArg: String(Flags.manualSat)
-
     /** Current theme key; legacy "auto"/"transparent" saves read as dark. */
     readonly property string themeShown: (Flags.dockTheme === "auto"
         || Flags.dockTheme === "transparent") ? "dark" : Flags.dockTheme
     //* The glass depth axis is independent; legacy saves default to transparent.
     readonly property string glassShown: Flags.dockStyle === "solid" ? "solid" : "transparent"
 
-    readonly property color accentColor: Qt.hsla(Flags.manualHue / 360, Flags.manualSat, Flags.manualDark ? 0.5 : 0.62, 1)
+    // The dock's manual hue editor drives the dock's OWN flags only
+    // (dockManualHue/dockManualSat/dockManualDark) — a live swatch for the
+    // local PaletteHue render in DockBar.
+    readonly property color accentColor: Qt.hsla(Flags.dockManualHue / 360, Flags.dockManualSat, Flags.dockManualDark ? 0.5 : 0.62, 1)
     readonly property string currentHex: {
         var c = accentColor;
         function h(x) { return ("0" + Math.round(x * 255).toString(16)).slice(-2); }
         return ("#" + h(c.r) + h(c.g) + h(c.b)).toUpperCase();
     }
 
-    function applyManual() {
-        hueArg = String(Math.round(Flags.manualHue));
-        modeArg = Flags.manualDark ? "dark" : "light";
-        satArg = String(Flags.manualSat);
-        applyTimer.restart();
-    }
-
+    // Switching the dock theme only sets the flag; the dock re-resolves its own
+    // palette locally (PaletteHue for manual, Dyn for dynamic, static hexes for
+    // light/dark). No wallcolors process, no colors.json write — the pill never
+    // notices. Picking dynamic refreshes the shared colors.json from the current
+    // wallpaper first, so the dock's dynamic palette is never a stale cache.
     function applyMode(v) {
         Flags.dockTheme = v;
-        if (v === "manual")
-            root.applyManual();
-        else if (v === "dynamic")
-            dynamicProc.running = true;
+        if (v === "dynamic")
+            paletteRegen.running = true;
     }
 
-    Timer {
-        id: applyTimer
-        interval: 260
-        repeat: false
-        onTriggered: paletteProc.running = true
-    }
-
+    /** Refresh the shared wallpaper palette (used by both dynamic sides) from the
+     *  current wallpaper; everything writes only into the ukishima cache dir. */
     Process {
-        id: paletteProc
-        command: ["sh", "-c",
-            "wallscript=\"" + Config.hyprPath("scripts", "wallcolors.py") + "\"; python3 \"$wallscript\" --hue \"$1\" \"$2\" \"$3\" && hyprctl reload >/dev/null 2>&1; busctl --user call com.mitchellh.ghostty /com/mitchellh/ghostty org.gtk.Actions Activate \"sava{sv}\" reload-config 0 0 >/dev/null 2>&1; command -v kitty >/dev/null 2>&1 && kitty @ set-colors \"$HOME/.cache/ukishima/kitty-colors\" >/dev/null 2>&1 || true",
-            "sh", root.hueArg, root.modeArg, root.satArg]
-    }
-
-    Process {
-        id: dynamicProc
-        command: ["sh", "-c",
-            "f=\"${XDG_STATE_HOME:-$HOME/.local/state}/ukishima-wallpaper\"; pic=$(cat \"$f\" 2>/dev/null); case \"$pic\" in *.[Mm][Pp]4|*.[Ww][Ee][Bb][Mm]|*.[Mm][Kk][Vv]|*.[Mm][Oo][Vv]) pic=\"${XDG_STATE_HOME:-$HOME/.local/state}/ukishima-wallpaper-still.png\";; esac; wallscript=\"" + Config.hyprPath("scripts", "wallcolors.py") + "\"; [ -f \"$pic\" ] && python3 \"$wallscript\" \"$pic\" >/dev/null 2>&1; hyprctl reload >/dev/null 2>&1; busctl --user call com.mitchellh.ghostty /com/mitchellh/ghostty org.gtk.Actions Activate \"sava{sv}\" reload-config 0 0 >/dev/null 2>&1; command -v kitty >/dev/null 2>&1 && kitty @ set-colors \"$HOME/.cache/ukishima/kitty-colors\" >/dev/null 2>&1 || true"]
-    }
-
-    Connections {
-        target: Flags
-        function onManualHueChanged() {
-            if (Flags.dockTheme === "manual")
-                root.applyManual();
-        }
-        function onManualSatChanged() {
-            if (Flags.dockTheme === "manual")
-                root.applyManual();
-        }
+        id: paletteRegen
+        command: ["bash", Config.hyprPath("scripts", "wallpaper.sh"), "regen"]
     }
 
     rows: {
@@ -209,7 +181,7 @@ SettingsSurface {
                             height: 16 * root.s
                             radius: width / 2
                             anchors.verticalCenter: parent.verticalCenter
-                            x: (Flags.manualHue / 359) * (hueStrip.width - width)
+                            x: (Flags.dockManualHue / 359) * (hueStrip.width - width)
                             color: root.accentColor
                             border.width: 2.5 * root.s
                             border.color: Theme.cream
@@ -219,9 +191,9 @@ SettingsSurface {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             function setHue(mx) {
-                                if (Flags.manualSat < 0.05)
-                                    Flags.manualSat = 0.5;
-                                Flags.manualHue = Math.round(Math.max(0, Math.min(1, mx / hueStrip.width)) * 359);
+                                if (Flags.dockManualSat < 0.05)
+                                    Flags.dockManualSat = 0.5;
+                                Flags.dockManualHue = Math.round(Math.max(0, Math.min(1, mx / hueStrip.width)) * 359);
                             }
                             onPressed: (mouse) => setHue(mouse.x)
                             onPositionChanged: (mouse) => setHue(mouse.x)
@@ -261,7 +233,7 @@ SettingsSurface {
                             font.weight: Font.DemiBold
                         }
                         Text {
-                            text: root.currentHex + " · " + (Flags.manualDark ? "dark" : "light")
+                            text: root.currentHex + " · " + (Flags.dockManualDark ? "dark" : "light")
                             color: Theme.faint
                             font.family: Theme.font
                             font.pixelSize: 10.5 * root.s
@@ -277,8 +249,8 @@ SettingsSurface {
                         anchors.verticalCenter: parent.verticalCenter
                         s: root.s
                         options: [{ label: "Dark", value: true }, { label: "Light", value: false }]
-                        value: Flags.manualDark
-                        onPicked: (v) => { Flags.manualDark = v; root.applyManual(); }
+                        value: Flags.dockManualDark
+                        onPicked: (v) => { Flags.dockManualDark = v; }
                     }
                 }
 
@@ -327,12 +299,11 @@ SettingsSurface {
                                 if (c.hslHue >= 0) {
                                     /* QML color hslHue/hslSaturation are 0-1 fractions;
                                      * the strip stores hue 0-359 and sat 0-1. */
-                                    Flags.manualHue = Math.round(c.hslHue * 359);
-                                    Flags.manualSat = Math.min(1, c.hslSaturation);
+                                    Flags.dockManualHue = Math.round(c.hslHue * 359);
+                                    Flags.dockManualSat = Math.min(1, c.hslSaturation);
                                 } else {
-                                    Flags.manualSat = 0;
+                                    Flags.dockManualSat = 0;
                                 }
-                                root.applyManual();
                             }
                             text = "";
                             focus = false;

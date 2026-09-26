@@ -10,6 +10,7 @@ singleton Backlight Backlight.qml
 singleton ScreenRec ScreenRec.qml
 singleton Sysmon Sysmon.qml
 singleton Dyn Dyn.qml
+singleton PaletteHue PaletteHue.qml
 singleton Weather Weather.qml
 singleton Events Events.qml
 singleton Workspacerules Workspacerules.qml

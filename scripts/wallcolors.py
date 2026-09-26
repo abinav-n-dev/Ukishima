@@ -14,15 +14,25 @@ hue-tinted background with dark text tiers (the classic default look), then the
 16 ANSI slots are shaped by matugen's light variant so the readout stays legible
 on the light background. The pill JSON carries surfaces, accent and the
 contrast-matched text.
+
+--hue is the rice-only mode: it renders fastfetch, Hyprland and the terminal
+from the chosen hue but no longer writes the shared colors.json. The pill's
+manual palette and the dock's manual palette are computed locally from their own
+hue flags (Singletons/PaletteHue.qml) instead, so a manual slider recolours only
+the side that owns it — colors.json stays the wallpaper palette that dynamic
+modes on both sides read.
 """
 import colorsys
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-CACHE = Path.home() / ".cache" / "ukishima"
+# All cache lands in the single ukishima folder under the cache dir, resolved the
+# same way the QML side and the thumb scripts do (Dyn reads this file).
+CACHE = Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")) / "ukishima"
 
 SURF_NAMES = ["surface", "surface_container_low", "surface_container",
               "surface_container_high", "surface_container_highest", "outline_variant"]
@@ -159,7 +169,8 @@ def render_fastfetch(pill):
 def main():
     if len(sys.argv) < 2:
         return 1
-    if sys.argv[1] == "--hue":
+    hue_only = sys.argv[1] == "--hue"
+    if hue_only:
         hue = (float(sys.argv[2]) % 360) / 360.0
         mode = sys.argv[3] if len(sys.argv) > 3 else "dark"
         sat = float(sys.argv[4]) if len(sys.argv) > 4 else 0.5
@@ -193,7 +204,11 @@ def main():
     pill["outline"] = tint(hue, surf_sat, base + (-0.35 if light else 0.35))
     for key, (lit, st) in zip(TEXT_KEYS, text):
         pill[key] = tint(hue, st, lit)
-    (CACHE / "colors.json").write_text(json.dumps(pill, indent=2) + "\n")
+    if not hue_only:
+        # colors.json is the shared WALLPAPER palette (read by Dyn for the pill's
+        # and the dock's dynamic modes). --hue keeps it untouched so a manual
+        # slider never restyles the other side's dynamic palette.
+        (CACHE / "colors.json").write_text(json.dumps(pill, indent=2) + "\n")
     render_fastfetch(pill)
 
     try:

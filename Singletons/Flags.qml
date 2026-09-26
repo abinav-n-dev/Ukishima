@@ -33,6 +33,10 @@ Singleton {
     property alias manualHue: adapter.manualHue
     property alias manualDark: adapter.manualDark
     property alias manualSat: adapter.manualSat
+    //* The dock's own manual hue — fully independent of the pill's manual flags.
+    property alias dockManualHue: adapter.dockManualHue
+    property alias dockManualSat: adapter.dockManualSat
+    property alias dockManualDark: adapter.dockManualDark
     //* Accent override: a "#rrggbb" hex that wins over the Light/Dark default, the
     //* wallpaper accent and the manual hue for every warm token. Empty follows the scheme.
     property alias accentOverride: adapter.accentOverride
@@ -126,6 +130,9 @@ Singleton {
             property int manualHue: 30
             property bool manualDark: true
             property real manualSat: 0.5
+            property int dockManualHue: 30
+            property bool dockManualDark: true
+            property real dockManualSat: 0.5
             //* Accent override: a "#rrggbb" hex that wins over the Light/Dark default, the
             //* wallpaper accent and the manual hue for every warm token. Empty follows the scheme.
             property string accentOverride: ""

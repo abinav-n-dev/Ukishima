@@ -274,20 +274,26 @@ palette_update() {
     printf '%s\n' "$pic" > "$STATE"
     pmode=$(jq -r '.paletteMode // "static"' "$flags_file" 2>/dev/null || echo static)
     mkdir -p "$(dirname "$WLOG")"
+    # Always refresh the shared wallpaper palette (colors.json) so both dynamic
+    # modes (pill and dock) track the wallpaper. In manual mode the rice side
+    # effects on top follow the pill's hue through --hue, which no longer
+    # rewrites colors.json.
+    python3 "$(dirname "$0")/wallcolors.py" "$show" >>"$WLOG" 2>&1 || true
     if [ "$pmode" = "manual" ]; then
         mh=$(jq -r '.manualHue // 30' "$flags_file" 2>/dev/null || echo 30)
         md=$(jq -r 'if .manualDark == false then "light" else "dark" end' "$flags_file" 2>/dev/null || echo dark)
-        python3 "$(dirname "$0")/wallcolors.py" --hue "$mh" "$md" >>"$WLOG" 2>&1 || true
-    else
-        python3 "$(dirname "$0")/wallcolors.py" "$show" >>"$WLOG" 2>&1 || true
+        ms=$(jq -r '.manualSat // 0.5' "$flags_file" 2>/dev/null || echo 0.5)
+        python3 "$(dirname "$0")/wallcolors.py" --hue "$mh" "$md" "$ms" >>"$WLOG" 2>&1 || true
     fi
     hyprctl reload >/dev/null 2>&1 || true
     busctl --user call com.mitchellh.ghostty /com/mitchellh/ghostty org.gtk.Actions \
         Activate "sava{sv}" reload-config 0 0 >/dev/null 2>&1 || true
     # kitty: remote-control reload (needs allow_remote_control in kitty.conf);
     # silently skipped when kitty is missing, not running, or IPC is disabled.
+    # The call can hang forever when kitty is installed but no instance is up,
+    # so it is walled in a timeout.
     command -v kitty >/dev/null 2>&1 \
-        && kitty @ set-colors "$HOME/.cache/ukishima/kitty-colors" >/dev/null 2>&1 || true
+        && timeout 8 kitty @ set-colors "${XDG_CACHE_HOME:-$HOME/.cache}/ukishima/kitty-colors" >/dev/null 2>&1 || true
 }
 
 map_has_video() {
@@ -336,12 +342,22 @@ restore_all() {
     exit 0
 }
 
+cmd="${1:-}"
+target=""
+
+# regen: refresh the shared wallpaper palette (colors.json, in the ukishima cache
+# dir) from the current wallpaper, without touching the daemon or any wallpaper
+# state. Fired when a dynamic mode is picked, so switching to dynamic re-derives
+# from the live wallpaper even when the cached palette went stale — e.g. written
+# by an older install that stored the manual hue in colors.json.
+if [ "$cmd" = "regen" ]; then
+    palette_update
+    exit 0
+fi
+
 daemon_was_running=true
 awww query >/dev/null 2>&1 || daemon_was_running=false
 ensure_daemon || exit 0
-
-cmd="${1:-}"
-target=""
 
 if [ "$cmd" = "init" ]; then
     if [ ! -s "$MAP" ] && [ -s "$STATE" ]; then

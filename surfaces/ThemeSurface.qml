@@ -16,9 +16,11 @@ import "../components"
  * back chevron or an empty click.
  *
  * Manual palette mode reveals a rainbow hue strip and a dark/light choice; moving
- * either rebuilds the rice colour set from that hue through wallcolors.py --hue
- * and reloads Hyprland and the terminal, debounced so a drag does not spawn a
- * build per pixel.
+ * either recolours the pill immediately (PaletteHue computes the ramp locally in
+ * QML) and rebuilds the rice colour set from that hue through wallcolors.py --hue
+ * (terminal, Hyprland, fastfetch), debounced so a drag does not spawn a build per
+ * pixel. The rice run never rewrites the shared colors.json, so the dock keeps
+ * its own palette while the pill slider moves.
  */
 SettingsSurface {
     id: root
@@ -52,7 +54,11 @@ SettingsSurface {
         if (v === "manual")
             applyManual();
         else if (v === "dynamic")
-            dynamicProc.running = true;
+            paletteRegen.running = true;
+        // Dynamic reads colors.json (Dyn) for the wallpaper palette. Entering it
+        // refreshes that file from the current wallpaper (wallpaper.sh regen) so a
+        // stale cache — e.g. left by an older install that stored the manual hue
+        // in colors.json — never shows the wrong scheme.
     }
 
     Timer {
@@ -65,14 +71,15 @@ SettingsSurface {
     Process {
         id: paletteProc
         command: ["sh", "-c",
-            "wallscript=\"" + Config.hyprPath("scripts", "wallcolors.py") + "\"; python3 \"$wallscript\" --hue \"$1\" \"$2\" \"$3\" && hyprctl reload >/dev/null 2>&1; busctl --user call com.mitchellh.ghostty /com/mitchellh/ghostty org.gtk.Actions Activate \"sava{sv}\" reload-config 0 0 >/dev/null 2>&1; command -v kitty >/dev/null 2>&1 && kitty @ set-colors \"$HOME/.cache/ukishima/kitty-colors\" >/dev/null 2>&1 || true",
+            "wallscript=\"" + Config.hyprPath("scripts", "wallcolors.py") + "\"; python3 \"$wallscript\" --hue \"$1\" \"$2\" \"$3\" && hyprctl reload >/dev/null 2>&1; busctl --user call com.mitchellh.ghostty /com/mitchellh/ghostty org.gtk.Actions Activate \"sava{sv}\" reload-config 0 0 >/dev/null 2>&1; command -v kitty >/dev/null 2>&1 && timeout 8 kitty @ set-colors \"${XDG_CACHE_HOME:-$HOME/.cache}/ukishima/kitty-colors\" >/dev/null 2>&1 || true",
             "sh", root.hueArg, root.modeArg, root.satArg]
     }
 
+    /** Refresh the shared wallpaper palette from the current wallpaper when
+     *  dynamic is picked — everything writes only into the ukishima cache dir. */
     Process {
-        id: dynamicProc
-        command: ["sh", "-c",
-            "f=\"${XDG_STATE_HOME:-$HOME/.local/state}/ukishima-wallpaper\"; pic=$(cat \"$f\" 2>/dev/null); case \"$pic\" in *.[Mm][Pp]4|*.[Ww][Ee][Bb][Mm]|*.[Mm][Kk][Vv]|*.[Mm][Oo][Vv]) pic=\"${XDG_STATE_HOME:-$HOME/.local/state}/ukishima-wallpaper-still.png\";; esac; wallscript=\"" + Config.hyprPath("scripts", "wallcolors.py") + "\"; [ -f \"$pic\" ] && python3 \"$wallscript\" \"$pic\" >/dev/null 2>&1; hyprctl reload >/dev/null 2>&1; busctl --user call com.mitchellh.ghostty /com/mitchellh/ghostty org.gtk.Actions Activate \"sava{sv}\" reload-config 0 0 >/dev/null 2>&1; command -v kitty >/dev/null 2>&1 && kitty @ set-colors \"$HOME/.cache/ukishima/kitty-colors\" >/dev/null 2>&1 || true"]
+        id: paletteRegen
+        command: ["bash", Config.hyprPath("scripts", "wallpaper.sh"), "regen"]
     }
 
     Connections {

@@ -671,7 +671,7 @@ PillSurface {
                 return;
             prevFetch.url = root.focusedPreviewUrl;
             prevFetch.command = ["bash", "-c",
-                "f=\"/tmp/ukishima-wp-preview-$(printf %s \"$1\" | md5sum | cut -d' ' -f1).webm\"; [ -s \"$f\" ] || curl -fsL --max-time 25 -A 'Mozilla/5.0' -o \"$f\" \"$1\" || { rm -f \"$f\"; exit 1; }; printf %s \"$f\"",
+                "d=\"${XDG_CACHE_HOME:-$HOME/.cache}/ukishima/previews\"; mkdir -p \"$d\"; f=\"$d/ukishima-wp-preview-$(printf %s \"$1\" | md5sum | cut -d' ' -f1).webm\"; [ -s \"$f\" ] || curl -fsL --max-time 25 -A 'Mozilla/5.0' -o \"$f\" \"$1\" || { rm -f \"$f\"; exit 1; }; printf %s \"$f\"",
                 "_", root.focusedPreviewUrl];
             prevFetch.running = true;
         }

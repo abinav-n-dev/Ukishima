@@ -64,15 +64,28 @@ Item {
     // ---- dock palette: the dock resolves its own effective theme, so the pane,
 //      copy, hairline and the active/dot accents all come from ONE palette —
 //      no global-Theme leaks. The selector mirrors the pill's theme choices
-//      (light/dark/dynamic/manual), so the dock is themed independently of the
-//      pill. The glass depth is a separate axis: "transparent" lets the desktop
-//      glow through at glassAlpha, "solid" paints opaque. ----
+//      (light/dark/dynamic/manual), with the same split: manual renders locally
+//      from the dock's own hue flags (PaletteHue), dynamic reads the shared
+//      wallpaper palette (Dyn) — which only wallpaper changes ever rewrite — and
+//      light/dark are static. The dock is themed independently of the pill, both
+//      directions. The glass depth is a separate axis: "transparent" lets the
+//      desktop glow through at glassAlpha, "solid" paints opaque. ----
 
 /** Effective palette mode, resolved from the dock's own selector. */
     readonly property string dockMode: (Flags.dockTheme === "auto"
         || Flags.dockTheme === "transparent") ? "dark" : Flags.dockTheme
-    readonly property bool dockEffDyn: root.dockMode === "dynamic" || root.dockMode === "manual"
+    readonly property bool dockEffDyn: root.dockMode === "dynamic"
+    readonly property bool dockEffManual: root.dockMode === "manual"
     readonly property bool dockEffLight: root.dockMode === "light"
+    /**
+     * Local manual palette from the dock's OWN hue flags — the wallcolors.py
+     * --hue math computed in QML. It never reads or writes the shared
+     * colors.json, so the pill's dynamic palette (Dyn) does not move when the
+     * dock's manual controls do. Always built, mode-independent, so a dockTheme
+     * flip can never expose an empty object to the tokens below mid-update —
+     * the dockEffManual guards decide when it is actually used.
+     */
+    readonly property var dockHue: PaletteHue.build(Flags.dockManualHue, Flags.dockManualSat, Flags.dockManualDark)
     /**
      * Translucency of the transparent pane, mirroring the pill's regular glass
      * (0.78 * pill opacity). The dock can not lean on the pill's readability
@@ -90,17 +103,20 @@ Item {
         return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1);
     }
     readonly property bool dockCustom: Flags.accentOverride.length > 0
-    readonly property color dockAccent: root.dockCustom ? Flags.accentOverride : (root.dockEffDyn ? Dyn.primary : "#ff9a64")
-    readonly property color dockActive: root.dockCustom ? Flags.accentOverride : (root.dockEffDyn ? Dyn.primary : "#e0563b")
+    readonly property color dockAccent: root.dockCustom ? Flags.accentOverride : (root.dockEffManual ? root.dockHue.primary : (root.dockEffDyn ? Dyn.primary : "#ff9a64"))
+    readonly property color dockActive: root.dockCustom ? Flags.accentOverride : (root.dockEffManual ? root.dockHue.primary : (root.dockEffDyn ? Dyn.primary : "#e0563b"))
     /** Text-colour override mirroring the pill's: a pinned hex recolours the dock's title copy too. */
     readonly property bool dockCustomText: Flags.textOverride.length > 0
-    readonly property color dockCardTop: root.dockEffDyn ? Dyn.surfaceContainerHigh
-        : (root.dockEffLight ? "#f6f2ec" : "#171717")
-    readonly property color dockCardBot: root.dockEffDyn ? Dyn.surfaceContainerLow
-        : (root.dockEffLight ? "#ece6df" : "#0c0c0c")
+    readonly property color dockCardTop: root.dockEffManual ? root.dockHue.surface_container_high
+        : (root.dockEffDyn ? Dyn.surfaceContainerHigh
+        : (root.dockEffLight ? "#f6f2ec" : "#171717"))
+    readonly property color dockCardBot: root.dockEffManual ? root.dockHue.surface_container_low
+        : (root.dockEffDyn ? Dyn.surfaceContainerLow
+        : (root.dockEffLight ? "#ece6df" : "#0c0c0c"))
     readonly property color dockCream: root.dockCustomText ? Flags.textOverride
+        : (root.dockEffManual ? root.dockHue.cream
         : (root.dockEffDyn ? Dyn.cream
-        : (root.dockEffLight ? "#2a241f" : "#ececec"))
+        : (root.dockEffLight ? "#2a241f" : "#ececec")))
     readonly property color dockPaneTop: root.dockGlass
         ? Qt.alpha(root.blendColor(root.dockCardTop, root.dockAccent, 0.05), root.glassAlpha)
         : root.blendColor(root.dockCardTop, root.dockAccent, 0.05)
