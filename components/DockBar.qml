@@ -89,14 +89,18 @@ Item {
     function blendColor(a, b, t) {
         return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1);
     }
-    readonly property color dockAccent: root.dockEffDyn ? Dyn.primary : "#ff9a64"
-    readonly property color dockActive: root.dockEffDyn ? Dyn.primary : "#e0563b"
+    readonly property bool dockCustom: Flags.accentOverride.length > 0
+    readonly property color dockAccent: root.dockCustom ? Flags.accentOverride : (root.dockEffDyn ? Dyn.primary : "#ff9a64")
+    readonly property color dockActive: root.dockCustom ? Flags.accentOverride : (root.dockEffDyn ? Dyn.primary : "#e0563b")
+    /** Text-colour override mirroring the pill's: a pinned hex recolours the dock's title copy too. */
+    readonly property bool dockCustomText: Flags.textOverride.length > 0
     readonly property color dockCardTop: root.dockEffDyn ? Dyn.surfaceContainerHigh
         : (root.dockEffLight ? "#f6f2ec" : "#171717")
     readonly property color dockCardBot: root.dockEffDyn ? Dyn.surfaceContainerLow
         : (root.dockEffLight ? "#ece6df" : "#0c0c0c")
-    readonly property color dockCream: root.dockEffDyn ? Dyn.cream
-        : (root.dockEffLight ? "#2a241f" : "#ececec")
+    readonly property color dockCream: root.dockCustomText ? Flags.textOverride
+        : (root.dockEffDyn ? Dyn.cream
+        : (root.dockEffLight ? "#2a241f" : "#ececec"))
     readonly property color dockPaneTop: root.dockGlass
         ? Qt.alpha(root.blendColor(root.dockCardTop, root.dockAccent, 0.05), root.glassAlpha)
         : root.blendColor(root.dockCardTop, root.dockAccent, 0.05)
@@ -111,9 +115,11 @@ Item {
         ? Qt.alpha("#1c1a17", 0.08) : Qt.alpha("#ffffff", 0.12)
     readonly property color dockDotIdle: root.dockEffLight
         ? Qt.alpha("#2c2926", 0.72) : Qt.alpha("#e4e2e8", 0.72)
-    readonly property color dockCopy: root.dockEffLight ? "#3b3833" : "#cfcdd4"
-    readonly property color dockFaint: root.dockEffLight
-        ? Qt.alpha("#3b3833", 0.6) : Qt.alpha("#cfcdd4", 0.55)
+    readonly property color dockCopy: root.dockCustomText ? Flags.textOverride
+        : (root.dockEffLight ? "#3b3833" : "#cfcdd4")
+    readonly property color dockFaint: root.dockCustomText ? Qt.alpha(Flags.textOverride, 0.6)
+        : (root.dockEffLight
+        ? Qt.alpha("#3b3833", 0.6) : Qt.alpha("#cfcdd4", 0.55))
     readonly property color dockHair: Qt.alpha(root.dockCream, 0.08)
     readonly property color dockDim: Qt.rgba(0, 0, 0, 0.45)
 
@@ -211,7 +217,11 @@ Item {
 
     Timer {
         id: itemsTimer
-        interval: 800
+        // Poll is sig-guarded and nearly free when nothing changed, so it can
+        // run fast: ~120ms means the active dot answers within a blink of the
+        // activation actually landing (there is no reactive Hyprland event to
+        // hook in this build). 400ms made the dot visibly lag after a click.
+        interval: 120
         repeat: true
         running: Flags.dockEnabled
         onTriggered: root.refreshItems()
@@ -225,19 +235,157 @@ Item {
     Component.onCompleted: root.refreshItems()
 
     /**
-     * Only rebuild when the underlying state actually changed. The model is a
-     * fresh array of fresh objects each build, so reassigning it makes the
-     * Repeater destroy and recreate every chip delegate — which drops hover
-     * state and closes an open preview. Without this guard the 800ms poll
-     * would do that on every tick.
+     * Rebuild only when the underlying state actually changed. `items` stays
+     * the live source of truth; `itemsModel` is a ListModel with flat, typed
+     * roles that the chip Repeater binds to. When only live state flips (a
+     * window becoming active, a tab opening, a workspace re-sort) the rows are
+     * patched in place with set()/move(): the chip delegates stay alive, so
+     * hover swell, loaded icons, tooltips and any open preview are never
+     * dropped — which is what used to read as a "shrink-and-bounce" a moment
+     * after clicking a chip. Because rows update without recreating, the
+     * active dot also answers immediately, even while the pointer is parked on
+     * the dock. The model is rebuilt only when the chip set itself changes (an
+     * app launched or quit, a pin toggled), which legitimately needs fresh
+     * chips.
      */
     property string itemSig: ""
+    property int modelRev: 0
+    property var itemsModel: ListModel {}
     function refreshItems() {
         var sig = root.itemsSignature();
         if (sig === root.itemSig) return;
         root.itemSig = sig;
-        root.items = buildItems();
+        root.modelRev += 1;
+        var next = root.buildItems();
+        if (root.sameChipSet(root.items, next)) {
+            root.syncModelOrder(next);
+            // Patch only the rows that actually changed. Rewriting a row flips
+            // its `rev`, which re-evaluates that delegate's bindings (icon
+            // lookups, preview window sort) — rewriting every row on every
+            // flip made all chips re-evaluate in the same frame the active
+            // dot starts animating, stalling it. Untouched rows keep their
+            // values (and rev), so the flip touches just the affected chips.
+            var prevByKey = {};
+            for (var p = 0; p < root.items.length; p++)
+                prevByKey[root.chipIdent(root.items[p])] = root.winHash(root.items[p]);
+            for (var j = 0; j < next.length; j++) {
+                var cur = root.itemsModel.count > j ? root.itemsModel.get(j) : null;
+                var k = root.chipIdent(next[j]);
+                if (cur && root.sameRow(cur, next[j])
+                        && prevByKey[k] !== undefined
+                        && prevByKey[k] === root.winHash(next[j]))
+                    continue;
+                root.itemsModel.set(j, root.chipRow(next[j]));
+            }
+        } else {
+            root.itemsModel.clear();
+            for (var i = 0; i < next.length; i++)
+                root.itemsModel.append(root.chipRow(next[i]));
+        }
+        root.items = next;
         DockState.empty = root.items.length === 0;
+    }
+
+    /** Whether a flattened model row still matches its freshly built chip:
+     *  all live fields identical (windows are compared separately via
+     *  winHash, since model rows don't carry them). */
+    function sameRow(m, o) {
+        var e = o.entry;
+        return m.divider === !!o.divider
+            && m.entryId === (e && e.id ? e.id : "")
+            && m.icon === (e && e.icon ? e.icon : "")
+            && m.cls === (o.cls || "")
+            && m.name === (o.name || "")
+            && m.pinned === !!o.pinned
+            && m.suggested === !!o.suggested
+            && m.running === !!o.running
+            && m.active === !!o.active
+            && m.wsSort === (o.wsSort || 0);
+    }
+
+    /** Cheap fingerprint of a chip's window set (addresses + workspace +
+     *  minimized), so preview reads know when a row genuinely changed even
+     *  though its fields look identical. */
+    function winHash(o) {
+        var s = "";
+        var ws = o.windows;
+        for (var i = 0; i < ws.length; i++) {
+            var w = ws[i];
+            if (!w) continue;
+            s += String(w.address || w.handle || "") + ":"
+                + (w.workspace ? String(w.workspace.name) : "") + ":"
+                + (w.minimized ? "m" : "-") + ";";
+        }
+        return s;
+    }
+
+    /** Stable chip identity for set/order bookkeeping: a divider, or the app's
+     *  desktop-entry id (falling back to its window class) plus whether the
+     *  chip is pinned. Accepts either a buildItems chip (carries `entry`) or a
+     *  flattened ListModel row (carries `entryId`). Running/suggested/active
+     *  are live state, not identity, so a suggested chip that launches into the
+     *  running section keeps its delegate instead of being recreated. */
+    function chipIdent(o) {
+        if (!o) return "?";
+        if (o.divider) return "|";
+        var id = (o.entry && o.entry.id) ? o.entry.id : o.entryId;
+        return (id ? "E:" + id : "C:" + (o.cls || "")) + (o.pinned ? ":P" : "");
+    }
+
+    /** True when two builds describe the same chips (same identities and
+     *  count) regardless of order or live state — the signal to patch rows in
+     *  place instead of recreating delegates. */
+    function sameChipSet(a, b) {
+        if (!a || !b || a.length !== b.length) return false;
+        var ids = {};
+        for (var i = 0; i < a.length; i++) {
+            var k = root.chipIdent(a[i]);
+            ids[k] = (ids[k] || 0) + 1;
+        }
+        for (var j = 0; j < b.length; j++) {
+            var k2 = root.chipIdent(b[j]);
+            if (!ids[k2] || ids[k2] <= 0) return false;
+            ids[k2] -= 1;
+        }
+        return true;
+    }
+
+    /** The flat, typed role object written to one ListModel row, mirroring a
+     *  buildItems chip. Windows stay out of the model — this build's ListModel
+     *  drops array roles on set() — so the preview re-reads them from `items`
+     *  keyed off `rev` (which increments every applied pass).
+     */
+    function chipRow(o) {
+        var e = o.entry;
+        return {
+            divider: !!o.divider,
+            entryId: e && e.id ? e.id : "",
+            icon: e && e.icon ? e.icon : "",
+            cls: o.cls || "",
+            name: o.name || "",
+            pinned: !!o.pinned,
+            suggested: !!o.suggested,
+            running: !!o.running,
+            active: !!o.active,
+            wsSort: o.wsSort || 0,
+            rev: root.modelRev
+        };
+    }
+
+    /** Reorder the list model rows to match the freshly built order (pins
+     *  first, then running apps sorted by workspace) using positional moves,
+     *  which shift existing delegates instead of recreating them. */
+    function syncModelOrder(next) {
+        for (var i = 0; i < root.itemsModel.count && i < next.length; i++) {
+            if (root.chipIdent(root.itemsModel.get(i)) === root.chipIdent(next[i]))
+                continue;
+            for (var j = i + 1; j < root.itemsModel.count; j++) {
+                if (root.chipIdent(root.itemsModel.get(j)) === root.chipIdent(next[i])) {
+                    root.itemsModel.move(j, i, 1);
+                    break;
+                }
+            }
+        }
     }
 
     function itemsSignature() {
@@ -575,11 +723,12 @@ Item {
         spacing: root.chipSpacing * root.s
 
         Repeater {
-            model: root.items
+            model: root.itemsModel
 
             delegate: Item {
                 id: chip
                 required property var modelData
+                required property int index
                 readonly property bool divider: !!chip.modelData.divider
                 readonly property bool hover: area.containsMouse || panel.containsMouse
                 width: chip.divider ? 6 * s : root.chipW
@@ -615,7 +764,7 @@ Item {
                     smooth: true
                     transformOrigin: Item.Bottom
                     source: !chip.divider ? root.iconForName(
-                        chip.modelData.entry ? chip.modelData.entry.icon : chip.modelData.cls) : ""
+                        chip.modelData.icon ? chip.modelData.icon : chip.modelData.cls) : ""
                     opacity: !chip.modelData.running
                         && (chip.modelData.pinned || chip.modelData.suggested)
                         ? 0.55 : (chip.hover || chip.modelData.active) ? 1 : 0.9
@@ -646,16 +795,18 @@ Item {
                 }
 
                 Rectangle {
+                    // Uniform indicator: same size for every running app, the
+                    // active one distinguished purely by color. No size tween —
+                    // an app switch used to make one dot swell while the other
+                    // deflated (5.5s vs 4s), which read as growing/shrinking.
                     visible: !chip.divider && chip.modelData.running
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 8 * s
-                    width: chip.modelData.active ? 5.5 * s : 4 * s
-                    height: chip.modelData.active ? 5.5 * s : 4 * s
+                    width: 4 * s
+                    height: 4 * s
                     radius: width / 2
                     color: chip.modelData.active ? root.dockActive : root.dockDotIdle
-                    Behavior on width { NumberAnimation { duration: Motion.fast } }
-                    Behavior on height { NumberAnimation { duration: Motion.fast } }
                 }
 
                 MouseArea {
@@ -667,9 +818,9 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: (mouse) => {
                         if (mouse.button === Qt.RightButton)
-                            root.togglePin(chip.modelData);
+                            root.togglePin(root.items[index]);
                         else
-                            root.activate(chip.modelData);
+                            root.activate(root.items[index]);
                     }
                 }
 
@@ -690,8 +841,9 @@ Item {
                  */
                 Item {
                     id: preview
-                    readonly property var wins: chip.modelData && chip.modelData.windows
-                        ? root.orderWindows(chip.modelData.windows) : []
+                    readonly property var wins: (chip.modelData.rev >= 0) && root.items[index]
+                        && root.items[index].windows
+                        ? root.orderWindows(root.items[index].windows) : []
                     readonly property bool multi: !chip.divider && wins.length > 1
                     readonly property real pW: 200 * s
                     readonly property real pH: Math.min(wins.length, 5) * (30 * s) + 14 * s
