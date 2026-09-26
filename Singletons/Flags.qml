@@ -25,10 +25,20 @@ Singleton {
     property alias wallpaperFit: adapter.wallpaperFit
     property alias randomScope: adapter.randomScope
     property alias uiScale: adapter.uiScale
+    //* Resting pill width as a fraction of the shipped 160px; 1 is the shipped look.
+    property alias pillW: adapter.pillW
+    //* Resting pill height as a fraction of the shipped 38px; 1 is the shipped look.
+    property alias pillH: adapter.pillH
     property alias reduceMotion: adapter.reduceMotion
     property alias manualHue: adapter.manualHue
     property alias manualDark: adapter.manualDark
     property alias manualSat: adapter.manualSat
+    //* Accent override: a "#rrggbb" hex that wins over the Light/Dark default, the
+    //* wallpaper accent and the manual hue for every warm token. Empty follows the scheme.
+    property alias accentOverride: adapter.accentOverride
+    //* Text override: a "#rrggbb" hex that recolours the primary text family (cream/bright
+    //* on the pill, the dock's title copy) across the shell and the dock. Empty follows the scheme.
+    property alias textOverride: adapter.textOverride
     property alias uiFont: adapter.uiFont
     property alias pillOpacity: adapter.pillOpacity
     property alias pillBlur: adapter.pillBlur
@@ -108,10 +118,20 @@ Singleton {
             //* Super+B random target: "all" repaints every monitor, "cursor" only the one under the pointer.
             property string randomScope: "all"
             property real uiScale: 1
+            //* Resting pill width as a fraction of the shipped 160px; 1 is the shipped look.
+            property real pillW: 1
+            //* Resting pill height as a fraction of the shipped 38px; 1 is the shipped look.
+            property real pillH: 1
             property bool reduceMotion: false
             property int manualHue: 30
             property bool manualDark: true
             property real manualSat: 0.5
+            //* Accent override: a "#rrggbb" hex that wins over the Light/Dark default, the
+            //* wallpaper accent and the manual hue for every warm token. Empty follows the scheme.
+            property string accentOverride: ""
+            //* Text override: a "#rrggbb" hex that recolours the primary text family
+            //* (cream/bright on the pill, the dock's title copy). Empty follows the scheme.
+            property string textOverride: ""
             property string uiFont: ""
             property real pillOpacity: 1
             property bool pillBlur: false

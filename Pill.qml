@@ -264,8 +264,8 @@ Item {
     readonly property bool quickChoosing: quickHere && ScreenRec.quickChoosing && !surfaceOpen
     readonly property bool quickCounting: quickHere && ScreenRec.counting && !recorderOpen
 
-    readonly property real restW: 160 * s
-    readonly property real restH: 38 * s
+    readonly property real restW: 160 * s * Flags.pillW
+    readonly property real restH: 38 * s * Flags.pillH
 
     /**
      * Strip-face geometry: a compact top-centre notch pill. Its width is
@@ -277,6 +277,14 @@ Item {
     readonly property real stripPad: 20 * s
     readonly property real stripGap: 16 * s
     readonly property real stripCap: Math.max(320 * s, Math.min(600 * s, (barWindow ? barWindow.width : 1920 * s) - 60 * s))
+
+    /**
+     * Strip-face zoom: the width slider scales the whole notch (content and
+     * box together) via a uniform transform, so "Pill width" has real effect
+     * on this face too. 1 keeps the shipped look; the strip face carries a
+     * matching scale so elision/geometry stay internally consistent.
+     */
+    readonly property real stripZoom: 0.5 + 0.5 * Flags.pillW
     readonly property real stripArtW: 22 * s
     readonly property real stripMinTitle: 55 * s
     readonly property real stripMaxTitle: 220 * s
@@ -865,7 +873,7 @@ Item {
      * The pill's resting size for the current display mode.
      */
     readonly property size restSize: stripBar
-        ? Qt.size(Math.max(restW, stripFaceW), restH)
+        ? Qt.size(Math.max(restW, stripFaceW * stripZoom), restH)
         : Qt.size(Math.max(restW, restRow.implicitWidth + 36 * s), restH)
 
     readonly property size targetSize: {
@@ -1748,6 +1756,15 @@ Item {
             visible: pill.specialView === "" && pill.stripBar
             anchors.centerIn: parent
             spacing: pill.stripGap
+            // Width-slider zoom: the whole notch scales together (content and
+            // box), so the pill's target width (stripFaceW * stripZoom) always
+            // matches what is actually drawn; transformOrigin Center keeps it
+            // pinned to the pill's centre.
+            scale: pill.stripZoom
+            transformOrigin: Item.Center
+            Behavior on scale {
+                NumberAnimation { duration: pill.hoverHop ? Motion.glide : Motion.morph; easing.type: Motion.easeMorph; easing.bezierCurve: Motion.morphCurve }
+            }
 
             /** Recording duration in seconds; reset on each start. */
             property int recSecs: 0
