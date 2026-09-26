@@ -35,10 +35,12 @@ Singleton {
     /**
      * User text-colour override: a "#rrggbb" hex, empty to follow the scheme.
      * When set it wins for the primary text (cream) and the brightest token
-     * (bright) on every surface. The muted secondaries (dim, faint, iconDim,
-     * subtle, tickRest) keep their own scheme values so sub-copy stays legible
-     * beside a custom colour, and the alpha-derived veils (hair, sheen, frame*)
-     * follow cream automatically.
+     * (bright) on every surface, and the glyph/icon tint (iconDim) follows as a
+     * muted alpha wash so bar icons (wifi, calendar, workspaces...) carry the
+     * colour without shouting. The text secondaries (dim, faint, subtle,
+     * tickRest) keep their own scheme values so sub-copy stays legible beside a
+     * custom colour, and the alpha-derived veils (hair, sheen, frame*) follow
+     * cream automatically.
      */
     readonly property string customTextHex: Flags.textOverride
     readonly property bool customText: customTextHex.length > 0
@@ -76,7 +78,7 @@ Singleton {
     readonly property color tileBg:   dyn ? Dyn.surface : (light ? "#e9e3dc" : "#141414")
     readonly property color subtle:   dyn ? Dyn.subtle : (light ? "#5f574f" : "#a8a8a8")
     readonly property color faint:    dyn ? Dyn.faint : (light ? "#8a8078" : "#6a6a6a")
-    readonly property color iconDim:  dyn ? Dyn.iconDim : (light ? "#5a524b" : "#bdbdbd")
+    readonly property color iconDim:  customText ? Qt.alpha(cream, 0.6) : (dyn ? Dyn.iconDim : (light ? "#5a524b" : "#bdbdbd"))
     readonly property color hair:     Qt.alpha(cream, 0.13)
     readonly property color hairSoft: Qt.alpha(cream, 0.08)
     readonly property color sheen:    Qt.alpha(cream, 0.07)
