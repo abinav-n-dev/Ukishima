@@ -2234,14 +2234,14 @@ Item {
                             width: 16 * pill.s
                             height: 16 * pill.s
                             name: Weather.glyphFor(Weather.codeNow, Weather.isDay)
-                            color: Theme.subtle
+                            color: Theme.iconDim
                             stroke: 1.8
                         }
 
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             text: Weather.tempNow + "°"
-                            color: Theme.subtle
+                            color: Theme.iconDim
                             font.family: Theme.font
                             font.pixelSize: 12.5 * pill.s
                             font.weight: Font.Medium
@@ -2428,7 +2428,7 @@ Item {
                             id: battPct
                             anchors.centerIn: parent
                             text: Battery.pct + "%"
-                            color: Battery.low ? Theme.vermLit : (Battery.charging ? Theme.flameGlow : Theme.subtle)
+                            color: Battery.low ? Theme.vermLit : (Battery.charging ? Theme.flameGlow : Theme.iconDim)
                             font.family: Theme.font
                             font.pixelSize: 13 * pill.s
                             font.weight: Battery.charging ? Font.DemiBold : Font.Medium
