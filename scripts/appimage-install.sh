@@ -104,7 +104,7 @@ install_appimage() {
 	local tmp="$_tmpdir"
 
 	local name="" iconname="" categories="" wmclass="" root=""
-	if (cd "$tmp" && timeout 60 "$dest" --appimage-extract >/dev/null 2>&1) && [ -d "$tmp/squashfs-root" ]; then
+	if (cd "$tmp" && timeout -k 5 60 "$dest" --appimage-extract >/dev/null 2>&1) && [ -d "$tmp/squashfs-root" ]; then
 		root="$tmp/squashfs-root"
 		local df
 		df="$(find "$root" -maxdepth 2 -name '*.desktop' | head -1)"

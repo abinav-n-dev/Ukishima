@@ -48,7 +48,7 @@ fi
 
 run_hyprctl() {
     if command -v timeout >/dev/null 2>&1; then
-        timeout 3 "$cmd_hyprctl" "$@"
+        timeout -k 1 3 "$cmd_hyprctl" "$@"
     else
         "$cmd_hyprctl" "$@"
     fi

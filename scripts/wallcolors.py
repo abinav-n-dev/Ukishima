@@ -46,10 +46,16 @@ LIGHT_TEXT = [(0.20, 0.18), (0.10, 0.20), (0.36, 0.14), (0.48, 0.10),
 
 
 def analyze(wallpaper):
-    out = subprocess.run(
-        ["magick", wallpaper, "-alpha", "off", "-resize", "200x200", "-colors", "48",
-         "-format", "%c", "histogram:info:-"],
-        capture_output=True, text=True).stdout
+    # Bounded: a wedged magick would hang the caller (the QML Process and
+    # wallpaper.sh both wait on this), and an unbounded child is exactly what
+    # leaves a shell sitting in the process list. Degrades to a neutral palette.
+    try:
+        out = subprocess.run(
+            ["magick", wallpaper, "-alpha", "off", "-resize", "200x200", "-colors", "48",
+             "-format", "%c", "histogram:info:-"],
+            capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None, 0.0, 0.5
     buckets, total, lum, chroma = {}, 0, 0.0, 0
     for line in out.splitlines():
         m = re.search(r"\s*(\d+):\s*\([^)]*\)\s*#([0-9A-Fa-f]{6})", line)
@@ -76,9 +82,11 @@ def analyze(wallpaper):
 
 
 def matugen(source_hex):
+    # Bounded like magick above; the caller already treats a SubprocessError
+    # (TimeoutExpired included) as "no matugen" and falls back to its own ramp.
     out = subprocess.run(
         ["matugen", "color", "hex", source_hex, "-m", "dark", "-j", "hex"],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, timeout=15,
     )
     return json.loads(out.stdout)
 

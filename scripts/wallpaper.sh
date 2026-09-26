@@ -290,10 +290,13 @@ palette_update() {
         Activate "sava{sv}" reload-config 0 0 >/dev/null 2>&1 || true
     # kitty: remote-control reload (needs allow_remote_control in kitty.conf);
     # silently skipped when kitty is missing, not running, or IPC is disabled.
-    # The call can hang forever when kitty is installed but no instance is up,
-    # so it is walled in a timeout.
+    # The call can hang forever when kitty is installed but no instance is up, so
+    # it is walled in a timeout. The -k is what makes the wall real: plain
+    # `timeout` only sends SIGTERM and then waits indefinitely for the target to
+    # die, so a kitty client that ignores it left this script (and the QML
+    # Process that spawned it) sitting in the process list forever.
     command -v kitty >/dev/null 2>&1 \
-        && timeout 8 kitty @ set-colors "${XDG_CACHE_HOME:-$HOME/.cache}/ukishima/kitty-colors" >/dev/null 2>&1 || true
+        && timeout -k 1 5 kitty @ set-colors "${XDG_CACHE_HOME:-$HOME/.cache}/ukishima/kitty-colors" >/dev/null 2>&1 || true
 }
 
 map_has_video() {

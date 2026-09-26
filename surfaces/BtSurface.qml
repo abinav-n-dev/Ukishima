@@ -166,7 +166,7 @@ PillSurface {
         pairingAddress = d.address;
         failedAddress = "";
         pairProc.command = ["sh", "-c",
-            'timeout 30 bluetoothctl pair "$1" && bluetoothctl trust "$1" && timeout 30 bluetoothctl connect "$1"',
+            'timeout -k 5 30 bluetoothctl pair "$1" && bluetoothctl trust "$1" && timeout -k 5 30 bluetoothctl connect "$1"',
             "sh", d.address];
         pairProc.running = true;
     }
