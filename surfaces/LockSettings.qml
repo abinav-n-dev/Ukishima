@@ -26,10 +26,29 @@ SettingsSurface {
 
     /** hypridle refuses a 0 timeout as "never", so 0 is spelled as off = 0 here. */
     function applyIdle() {
+        if (!manageIdle)
+            return;
         if (applyProc.running)
             return;
         applyProc.command = ["sh", root.idleScript, String(Flags.idleLockMin), String(Flags.idleScreenOffMin), String(Flags.idleSuspendMin)];
         applyProc.running = true;
+    }
+
+    /**
+     * One discrete step for the keyboard path, so arrow keys behave exactly
+     * like clicking [−]/[+] — and still apply at most one write per press.
+     */
+    function stepIdle(current, dir, step, from, to, commit) {
+        if (!manageIdle)
+            return;
+        const lo = Math.ceil(from / step) * step;
+        const hi = Math.floor(to / step) * step;
+        const snapped = Math.round(current / step) * step;
+        const v = Math.max(lo, Math.min(hi, snapped + dir * step));
+        if (v === snapped)
+            return;
+        commit(v);
+        root.applyIdle();
     }
 
     /** Pull the live timeouts so the rows show what hypridle is really doing. */
@@ -47,19 +66,13 @@ SettingsSurface {
         { item: wifiRow, kind: "toggle", get: function () { return Flags.lockShowWifi; }, set: function (v) { Flags.lockShowWifi = v; } },
         { item: batteryRow, kind: "toggle", get: function () { return Flags.lockShowBattery; }, set: function (v) { Flags.lockShowBattery = v; } },
         { item: lockMinRow, kind: "scrub", bump: function (dir) {
-            lockMin.value = Math.max(0, Math.min(60, lockMin.value + dir));
-            Flags.idleLockMin = lockMin.value;
-            root.applyIdle();
+            root.stepIdle(Flags.idleLockMin, dir, 1, 0, 60, function (v) { Flags.idleLockMin = v; });
         } },
         { item: screenMinRow, kind: "scrub", bump: function (dir) {
-            screenMin.value = Math.max(0, Math.min(120, screenMin.value + dir * 2));
-            Flags.idleScreenOffMin = screenMin.value;
-            root.applyIdle();
+            root.stepIdle(Flags.idleScreenOffMin, dir, 2, 0, 120, function (v) { Flags.idleScreenOffMin = v; });
         } },
         { item: suspendMinRow, kind: "scrub", bump: function (dir) {
-            suspendMin.value = Math.max(0, Math.min(240, suspendMin.value + dir * 5));
-            Flags.idleSuspendMin = suspendMin.value;
-            root.applyIdle();
+            root.stepIdle(Flags.idleSuspendMin, dir, 5, 0, 240, function (v) { Flags.idleSuspendMin = v; });
         } }
     ]
 
@@ -71,18 +84,12 @@ SettingsSurface {
                 const parts = root.parseIdle(text);
                 if (!parts)
                     return;
-                if (lockMin.value !== parts[0]) {
-                    lockMin.value = parts[0];
+                if (Flags.idleLockMin !== parts[0])
                     Flags.idleLockMin = parts[0];
-                }
-                if (screenMin.value !== parts[1]) {
-                    screenMin.value = parts[1];
+                if (Flags.idleScreenOffMin !== parts[1])
                     Flags.idleScreenOffMin = parts[1];
-                }
-                if (suspendMin.value !== parts[2]) {
-                    suspendMin.value = parts[2];
+                if (Flags.idleSuspendMin !== parts[2])
                     Flags.idleSuspendMin = parts[2];
-                }
             }
         }
     }
@@ -203,69 +210,36 @@ SettingsSurface {
         }
 
         SettingsRow {
+            id: manageRow
+            surface: root
+            name: "Manage timeouts"
+            icon: "cog"
+            sub: manageIdle ? "Shell writes hypridle.conf" : "Read-only · edit hypridle.conf"
+
+            LinkToggle {
+                s: root.s
+                on: root.manageIdle
+                onToggled: root.manageIdle = !root.manageIdle
+            }
+        }
+
+        SettingsRow {
             id: lockMinRow
             surface: root
             name: "Lock after"
             icon: "lock"
-            sub: lockMin.value === 0 ? "Never" : "Idle " + lockMin.value + " min"
+            sub: lockMinText
 
-            Item {
-                width: lockPct.width + 10 * root.s + 120 * root.s
-                height: 52 * root.s
-
-                Row {
-                    anchors.top: parent.top
-                    anchors.topMargin: 8 * root.s
-                    spacing: 10 * root.s
-
-                    Text {
-                        id: lockPct
-
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 30 * root.s
-                        horizontalAlignment: Text.AlignRight
-                        text: lockMin.value === 0 ? "Off" : lockMin.value + "m"
-                        color: Theme.faint
-                        font.family: Theme.font
-                        font.pixelSize: 11 * root.s
-                        font.features: { "tnum": 1 }
-                    }
-
-                    Slider {
-                        id: lockMin
-
-                        width: 120 * root.s
-                        height: 26 * root.s
-                        from: 0
-                        to: 60
-                        stepSize: 1
-                        onMoved: {
-                            Flags.idleLockMin = value;
-                            root.applyIdle();
-                        }
-                        Component.onCompleted: value = Flags.idleLockMin
-
-                        background: Rectangle {
-                            y: lockMin.availableHeight / 2 - 2 * root.s
-                            width: lockMin.availableWidth
-                            height: 4 * root.s
-                            radius: 2 * root.s
-                            color: Theme.tileBg
-                            border.width: 1
-                            border.color: Theme.hairSoft
-                        }
-                        handle: Rectangle {
-                            x: lockMin.leftPadding + lockMin.visualPosition * (lockMin.availableWidth - width)
-                            y: lockMin.availableHeight / 2 - height / 2
-                            width: 14 * root.s
-                            height: 14 * root.s
-                            radius: width / 2
-                            color: Theme.verm
-                            border.width: 2 * root.s
-                            border.color: Theme.cream
-                            Behavior on x { NumberAnimation { duration: Motion.fast } }
-                        }
-                    }
+            MinuteStep {
+                s: root.s
+                interactive: root.manageIdle
+                value: Flags.idleLockMin
+                from: 0
+                to: 60
+                step: 1
+                onPicked: (v) => {
+                    Flags.idleLockMin = v;
+                    root.applyIdle();
                 }
             }
         }
@@ -275,65 +249,18 @@ SettingsSurface {
             surface: root
             name: "Screen off after"
             icon: "sun"
-            sub: screenMin.value === 0 ? "Never" : "Idle " + screenMin.value + " min"
+            sub: screenMinText
 
-            Item {
-                width: screenPct.width + 10 * root.s + 120 * root.s
-                height: 52 * root.s
-
-                Row {
-                    anchors.top: parent.top
-                    anchors.topMargin: 8 * root.s
-                    spacing: 10 * root.s
-
-                    Text {
-                        id: screenPct
-
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 30 * root.s
-                        horizontalAlignment: Text.AlignRight
-                        text: screenMin.value === 0 ? "Off" : screenMin.value + "m"
-                        color: Theme.faint
-                        font.family: Theme.font
-                        font.pixelSize: 11 * root.s
-                        font.features: { "tnum": 1 }
-                    }
-
-                    Slider {
-                        id: screenMin
-
-                        width: 120 * root.s
-                        height: 26 * root.s
-                        from: 0
-                        to: 120
-                        stepSize: 2
-                        onMoved: {
-                            Flags.idleScreenOffMin = value;
-                            root.applyIdle();
-                        }
-                        Component.onCompleted: value = Flags.idleScreenOffMin
-
-                        background: Rectangle {
-                            y: screenMin.availableHeight / 2 - 2 * root.s
-                            width: screenMin.availableWidth
-                            height: 4 * root.s
-                            radius: 2 * root.s
-                            color: Theme.tileBg
-                            border.width: 1
-                            border.color: Theme.hairSoft
-                        }
-                        handle: Rectangle {
-                            x: screenMin.leftPadding + screenMin.visualPosition * (screenMin.availableWidth - width)
-                            y: screenMin.availableHeight / 2 - height / 2
-                            width: 14 * root.s
-                            height: 14 * root.s
-                            radius: width / 2
-                            color: Theme.verm
-                            border.width: 2 * root.s
-                            border.color: Theme.cream
-                            Behavior on x { NumberAnimation { duration: Motion.fast } }
-                        }
-                    }
+            MinuteStep {
+                s: root.s
+                interactive: root.manageIdle
+                value: Flags.idleScreenOffMin
+                from: 0
+                to: 120
+                step: 2
+                onPicked: (v) => {
+                    Flags.idleScreenOffMin = v;
+                    root.applyIdle();
                 }
             }
         }
@@ -343,68 +270,123 @@ SettingsSurface {
             surface: root
             name: "Suspend after"
             icon: "moon"
-            sub: suspendMin.value === 0 ? "Never" : "Idle " + suspendMin.value + " min"
+            sub: suspendMinText
             last: true
 
-            Item {
-                width: suspendPct.width + 10 * root.s + 120 * root.s
-                height: 52 * root.s
-
-                Row {
-                    anchors.top: parent.top
-                    anchors.topMargin: 8 * root.s
-                    spacing: 10 * root.s
-
-                    Text {
-                        id: suspendPct
-
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 30 * root.s
-                        horizontalAlignment: Text.AlignRight
-                        text: suspendMin.value === 0 ? "Off" : suspendMin.value + "m"
-                        color: Theme.faint
-                        font.family: Theme.font
-                        font.pixelSize: 11 * root.s
-                        font.features: { "tnum": 1 }
-                    }
-
-                    Slider {
-                        id: suspendMin
-
-                        width: 120 * root.s
-                        height: 26 * root.s
-                        from: 0
-                        to: 240
-                        stepSize: 5
-                        onMoved: {
-                            Flags.idleSuspendMin = value;
-                            root.applyIdle();
-                        }
-                        Component.onCompleted: value = Flags.idleSuspendMin
-
-                        background: Rectangle {
-                            y: suspendMin.availableHeight / 2 - 2 * root.s
-                            width: suspendMin.availableWidth
-                            height: 4 * root.s
-                            radius: 2 * root.s
-                            color: Theme.tileBg
-                            border.width: 1
-                            border.color: Theme.hairSoft
-                        }
-                        handle: Rectangle {
-                            x: suspendMin.leftPadding + suspendMin.visualPosition * (suspendMin.availableWidth - width)
-                            y: suspendMin.availableHeight / 2 - height / 2
-                            width: 14 * root.s
-                            height: 14 * root.s
-                            radius: width / 2
-                            color: Theme.verm
-                            border.width: 2 * root.s
-                            border.color: Theme.cream
-                            Behavior on x { NumberAnimation { duration: Motion.fast } }
-                        }
-                    }
+            MinuteStep {
+                s: root.s
+                interactive: root.manageIdle
+                value: Flags.idleSuspendMin
+                from: 0
+                to: 240
+                step: 5
+                onPicked: (v) => {
+                    Flags.idleSuspendMin = v;
+                    root.applyIdle();
                 }
             }
+        }
+    }
+    /**
+     * Master switch for writing hypridle.conf. Off by default, and while it is
+     * off nothing on this surface can touch the file: the rows are read-only and
+     * applyIdle() returns immediately. Turning it on is an explicit statement
+     * that the shell owns the idle timeouts from here on.
+     */
+    property bool manageIdle: false
+
+    readonly property string lockMinText: Flags.idleLockMin === 0 ? "Never" : "Idle " + Flags.idleLockMin + " min"
+    readonly property string screenMinText: Flags.idleScreenOffMin === 0 ? "Never" : "Idle " + Flags.idleScreenOffMin + " min"
+    readonly property string suspendMinText: Flags.idleSuspendMin === 0 ? "Never" : "Idle " + Flags.idleSuspendMin + " min"
+
+    /** Square [-] / [+] nudge button; `live` greys it out at a bound. */
+    component NudgeButton: Rectangle {
+        id: nb
+
+        property real s: 1
+        property string glyph: ""
+        property bool live: true
+
+        signal tapped()
+
+        width: 22 * s
+        height: 20 * s
+        radius: 6 * s
+        color: nb.live ? Theme.tileBg : "transparent"
+        border.width: 1
+        border.color: Theme.border
+        opacity: nb.live ? 1 : 0.3
+
+        Text {
+            anchors.centerIn: parent
+            text: nb.glyph
+            color: Theme.cream
+            font.family: Theme.font
+            font.pixelSize: 13 * nb.s
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: nb.live
+            cursorShape: Qt.PointingHandCursor
+            onClicked: nb.tapped()
+        }
+    }
+
+    /**
+     * Discrete minute stepper: [-] value [+]. Buttons rather than a slider on
+     * purpose. A drag emits onMoved per pixel, and every one of those would
+     * rewrite hypridle.conf and bounce the idle daemon, so dragging from 5 to
+     * 30 could restart it a dozen times. One click, one value, one restart.
+     * The row's sub-text carries the "Idle N min" wording.
+     */
+    component MinuteStep: Row {
+        id: ms
+
+        property real s: 1
+        property int value: 0
+        property int from: 0
+        property int to: 100
+        property int step: 1
+        property bool interactive: true
+        signal picked(int v)
+
+        spacing: 6 * s
+        opacity: interactive ? 1 : 0.45
+
+        readonly property int snapped: Math.round(value / step) * step
+        readonly property int lowBound: Math.ceil(from / step) * step
+        readonly property int highBound: Math.floor(to / step) * step
+
+        function bump(dir) {
+            const v = Math.max(lowBound, Math.min(highBound, snapped + dir * step));
+            if (v !== snapped)
+                ms.picked(v);
+        }
+
+        NudgeButton {
+            s: ms.s
+            glyph: "\u2212"
+            live: ms.interactive && ms.snapped > ms.lowBound
+            onTapped: ms.bump(-1)
+        }
+
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            width: 32 * ms.s
+            horizontalAlignment: Text.AlignRight
+            text: ms.snapped === 0 ? "Off" : ms.snapped + "m"
+            color: Theme.faint
+            font.family: Theme.font
+            font.pixelSize: 11 * ms.s
+            font.features: { "tnum": 1 }
+        }
+
+        NudgeButton {
+            s: ms.s
+            glyph: "+"
+            live: ms.interactive && ms.snapped < ms.highBound
+            onTapped: ms.bump(1)
         }
     }
 }
