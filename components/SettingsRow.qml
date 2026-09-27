@@ -9,6 +9,11 @@ import "../Singletons"
  * hairline. `control` is the default slot for the toggle, segmented control or
  * chevron. `surface` wires hover and activation back to the owning settings
  * surface so the soul seam tracks the focused row; scale derives from it.
+ *
+ * Colours come from the surface's `pal` (see SettingsPalette), so the same row
+ * renders in the pill or in the dock's own settings panel without either host
+ * borrowing the other's palette. The `Theme` fallbacks below only apply to a row
+ * used with no surface at all.
  */
 Item {
     id: srow
@@ -25,6 +30,15 @@ Item {
     readonly property real s: srow.surface ? srow.surface.s : 1
     readonly property bool focused: srow.surface ? srow.surface.focusRowItem === srow : false
 
+    /** The host's palette. Every colour below resolves through it. */
+    readonly property var pal: srow.surface ? srow.surface.pal : null
+    readonly property color ink: srow.pal ? srow.pal.ink : Theme.cream
+    readonly property color subInk: srow.pal ? srow.pal.sub : Theme.subtle
+    readonly property color faint: srow.pal ? srow.pal.faint : Theme.faint
+    readonly property color iconIdle: srow.pal ? srow.pal.sub : Theme.iconDim
+    readonly property color tile: srow.pal ? srow.pal.tile : Theme.frameBg
+    readonly property color hair: srow.pal ? srow.pal.hair : Theme.hairSoft
+
     width: parent ? parent.width : 0
     height: Math.max(textCol.implicitHeight, controlSlot.childrenRect.height) + 12 * srow.s
 
@@ -38,7 +52,7 @@ Item {
         anchors.topMargin: 3 * srow.s
         anchors.bottomMargin: 3 * srow.s
         radius: 9 * srow.s
-        color: (srowHover.hovered || srow.focused) ? Theme.frameBg : "transparent"
+        color: (srowHover.hovered || srow.focused) ? srow.tile : "transparent"
         Behavior on color { ColorAnimation { duration: Motion.fast } }
     }
 
@@ -55,7 +69,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         visible: srow.glyph.length > 0 && srow.icon.length === 0 && Flags.showGlyphs
         text: srow.glyph
-        color: Theme.iconDim
+        color: srow.iconIdle
         font.family: Theme.fontJp
         font.pixelSize: 15 * srow.s
     }
@@ -69,7 +83,7 @@ Item {
         width: 17 * srow.s
         height: 17 * srow.s
         name: srow.icon
-        color: srow.focused ? Theme.cream : Theme.subtle
+        color: srow.focused ? srow.ink : srow.subInk
         stroke: 1.8
     }
 
@@ -86,7 +100,7 @@ Item {
             text: srow.name
             width: parent.width
             elide: Text.ElideRight
-            color: Theme.cream
+            color: srow.ink
             font.family: Theme.font
             font.pixelSize: 12.5 * srow.s
             font.weight: Font.DemiBold
@@ -95,7 +109,7 @@ Item {
             width: parent.width
             visible: srow.sub.length > 0 && (!srow.captionOnFocus || srow.focused || srowHover.hovered)
             text: srow.sub
-            color: Theme.faint
+            color: srow.faint
             font.family: Theme.font
             font.pixelSize: 10.5 * srow.s
             wrapMode: Text.WordWrap
@@ -124,7 +138,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 1
-        color: Theme.hairSoft
+        color: srow.hair
         visible: !srow.last
     }
 }

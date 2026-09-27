@@ -119,8 +119,7 @@ Item {
     readonly property bool interfaceOpen: surface === "interface"
     readonly property bool fontpickerOpen: surface === "fontpicker"
     readonly property bool updateOpen: surface === "update"
-    readonly property bool dockOpen: surface === "dock"
-    readonly property bool settingsLike: appearanceOpen || appcatOpen || displayOpen || themeOpen || accentOpen || glassOpen || fontColorOpen || interfaceOpen || fontpickerOpen || updateOpen || dockOpen
+    readonly property bool settingsLike: appearanceOpen || appcatOpen || displayOpen || themeOpen || accentOpen || glassOpen || fontColorOpen || interfaceOpen || fontpickerOpen || updateOpen
     readonly property bool hasMedia: Players.list.length > 0
 
     readonly property var netDevices: (typeof Networking !== "undefined" && Networking && Networking.devices) ? Networking.devices.values : []
@@ -268,8 +267,15 @@ Item {
     readonly property bool quickChoosing: quickHere && ScreenRec.quickChoosing && !surfaceOpen
     readonly property bool quickCounting: quickHere && ScreenRec.counting && !recorderOpen
 
-    readonly property real restW: 160 * s * Flags.pillW
-    readonly property real restH: 38 * s * Flags.pillH
+    /**
+     * The resting face's base grid: a fixed 160x38, scaled by the monitor
+     * factor alone. "UI scale" is the one size control — it moves `s`, so it
+     * moves this face and every other surface together. A second pair of
+     * width/height multipliers used to sit beside it, which could only ever
+     * disagree with the scale they were measured against, and is gone.
+     */
+    readonly property real restW: 160 * s
+    readonly property real restH: 38 * s
 
     /**
      * Strip-face geometry: a compact top-centre notch pill. Its width is
@@ -282,13 +288,12 @@ Item {
     readonly property real stripGap: 16 * s
     readonly property real stripCap: Math.max(320 * s, Math.min(600 * s, (barWindow ? barWindow.width : 1920 * s) - 60 * s))
 
-    /**
-     * Strip-face zoom: the width slider scales the whole notch (content and
-     * box together) via a uniform transform, so "Pill width" has real effect
-     * on this face too. 1 keeps the shipped look; the strip face carries a
-     * matching scale so elision/geometry stay internally consistent.
-     */
-    readonly property real stripZoom: 0.5 + 0.5 * Flags.pillW
+    // No strip-face zoom property lives here any more. The width slider used to
+    // scale the whole notch (content and box) through a transform, with the
+    // layout width multiplied to match, and both halves are gone: the notch now
+    // draws at the size `stripFaceW` already measured, and the row is its own
+    // size again. Keeping a scale of 1 would have left a transform that cannot
+    // do anything but still has to agree with the width it was computed from.
     readonly property real stripArtW: 22 * s
     readonly property real stripMinTitle: 55 * s
     readonly property real stripMaxTitle: 220 * s
@@ -408,7 +413,6 @@ Item {
         glass:      { size: () => Qt.size(settingsW, surfaceItem("glass").implicitHeight + 29 * s), ame: () => surfaceItem("glass") },
         fontcolor:  { size: () => Qt.size(settingsW, surfaceItem("fontcolor").implicitHeight + 29 * s), ame: () => surfaceItem("fontcolor") },
         interface:  { size: () => Qt.size(settingsW, surfaceItem("interface").implicitHeight + 29 * s), ame: () => surfaceItem("interface") },
-        dock:       { size: () => Qt.size(settingsW, surfaceItem("dock").implicitHeight + 29 * s), ame: () => surfaceItem("dock") },
         fontpicker: { size: () => Qt.size(fontpickerW, surfaceItem("fontpicker").implicitHeight + 29 * s), ame: () => surfaceItem("fontpicker") },
         update:     { size: () => Qt.size(settingsW, surfaceItem("update").implicitHeight + 29 * s), ame: () => surfaceItem("update") }
     })
@@ -443,7 +447,6 @@ Item {
         glass:      () => ldGlass,
         fontcolor:  () => ldFontcolor,
         interface:  () => ldInterface,
-        dock:       () => ldDock,
         fontpicker: () => ldFontpicker,
         update:     () => ldUpdate
     })
@@ -621,8 +624,6 @@ Item {
             return ldFontcolor.item;
         if (pill.interfaceOpen)
             return ldInterface.item;
-        if (pill.dockOpen)
-            return ldDock.item;
         if (pill.fontpickerOpen)
             return ldFontpicker.item;
         return null;
@@ -896,7 +897,7 @@ Item {
      * The pill's resting size for the current display mode.
      */
     readonly property size restSize: stripBar
-        ? Qt.size(Math.max(restW, stripFaceW * stripZoom), restH)
+        ? Qt.size(Math.max(restW, stripFaceW), restH)
         : Qt.size(Math.max(restW, restRow.implicitWidth + 36 * s), restH)
 
     readonly property size targetSize: {
@@ -1779,15 +1780,6 @@ Item {
             visible: pill.specialView === "" && pill.stripBar
             anchors.centerIn: parent
             spacing: pill.stripGap
-            // Width-slider zoom: the whole notch scales together (content and
-            // box), so the pill's target width (stripFaceW * stripZoom) always
-            // matches what is actually drawn; transformOrigin Center keeps it
-            // pinned to the pill's centre.
-            scale: pill.stripZoom
-            transformOrigin: Item.Center
-            Behavior on scale {
-                NumberAnimation { duration: pill.hoverHop ? Motion.glide : Motion.morph; easing.type: Motion.easeMorph; easing.bezierCurve: Motion.morphCurve }
-            }
 
             /** Recording duration in seconds; reset on each start. */
             property int recSecs: 0
@@ -3001,19 +2993,6 @@ sourceComponent: Media {
         sourceComponent: InterfaceSurface {
             s: pill.s * pill.settingsScale
             open: pill.interfaceOpen
-            morphCloseness: pill.morphCloseness
-            onRequestClose: pill.requestClose()
-            onRequestSurface: (name) => pill.requestSurface(name)
-        }
-    }
-
-    Loader {
-        id: ldDock
-        active: false
-        anchors.fill: parent
-        sourceComponent: DockSurface {
-            s: pill.s * pill.settingsScale
-            open: pill.dockOpen
             morphCloseness: pill.morphCloseness
             onRequestClose: pill.requestClose()
             onRequestSurface: (name) => pill.requestSurface(name)

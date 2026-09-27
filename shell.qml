@@ -321,7 +321,7 @@ ShellRoot {
              * stay clear, while the cursor-driven hover (58) may still dip past
              * the band by a few pixels.
              */
-            readonly property real restFaceH: 44 * s * Flags.pillH
+            readonly property real restFaceH: 44 * s
 
                         /** Trimming the reserved band below the pill's bottom lets windows climb, so App gap sets the pill-to-window air without touching the desktop gaps_out. The strip face docks flush to the screen top (its own topGap is zero), so it never adds the margin. */
             readonly property real reservedH: Flags.mainDisplay === "strip"
@@ -773,6 +773,119 @@ ShellRoot {
 
             readonly property bool suppressed: !Flags.dockEnabled || monFullscreen || Flags.gameMode
 
+            /**
+             * The one state where suppression must NOT take the panel with it.
+             *
+             * The dock's settings panel carries its own "Dock" switch, and that
+             * switch turns off the very bar whose gear opened the panel. Hosting
+             * the panel here, as a sibling of the bar rather than a child of it,
+             * is what makes that survivable: the panel stays put while the bar
+             * goes, so the panel is still a way back for the few seconds it takes
+             * to change your mind.
+             *
+             * The pill's Display surface also carries a "Dock" switch
+             * (`dockRow` there), which is the real way back and needs none of
+             * this. This is the belt to that pair of braces, so switching the
+             * dock off from the dock's own settings never becomes a one-way door
+             * — and it is scoped narrowly, so fullscreen and game mode still
+             * hide everything and nothing else can pin a panel to the screen.
+             */
+            readonly property bool dockForcedOpen: dock.settingsOpen && !Flags.dockEnabled
+
+            /**
+             * Click-away dismissal: a sentinel OUTLINE, not a hover watch.
+             *
+             * The first version of this watched hover and asked "is the pointer
+             * still over the panel or the bar?". It worked sometimes, and the
+             * reason is the thing that makes the whole approach wrong.
+             *
+             * A layer-shell surface is only sent pointer events for points inside
+             * its input region. So when the pointer leaves the dock's region, the
+             * dock simply stops hearing about it — and "the pointer left" is the
+             * ABSENCE of an event, not an event. Whether the compositor bothers to
+             * synthesise a leave when the pointer crosses out of an input region
+             * is not something this code can rely on, and it evidently does not
+             * always: `dock.hovered` and the panel's `pointerInside` are both
+             * passive hover flags that can be frozen at their last value. A frozen
+             * `true` is not a neutral reading, it is a permanent veto — and the
+             * old predicate was built out of exactly those two flags as vetoes.
+             * That is the whole bug: dismissal depended on a state the system was
+             * under no obligation to update, and one that can only ever say "I
+             * think it left", never "it left".
+             *
+             * The sentinel inverts that. It is a thin outline drawn just outside
+             * the block the panel owns, added to the input region, so crossing it
+             * is an ordinary motion event that IS delivered — a positive signal,
+             * with no inference and no veto. Every path off the panel crosses it,
+             * because it is a closed outline around the whole thing.
+             *
+             * Two bands of geometry, and the difference between them matters:
+             *
+             *  - `dismissBand` is the outline itself: thin, because it is real
+             *    screen area this window now keeps to itself, and a click landing
+             *    in it is consumed by this window rather than reaching whatever
+             *    is underneath.
+             *  - `dismissSlack` is the neutral strip INSIDE that outline and
+             *    OUTSIDE the panel's own region. Hovering it does nothing at all,
+             *    so drifting a few pixels off the dock's edge does not dismiss;
+             *    a click in it still dismisses, because the click floor covers it.
+             *    Without it the outline would butt straight against the bar's end,
+             *    and the gear lives there — a two-pixel wobble while reaching for
+             *    it would close the panel it just opened.
+             */
+            readonly property real dismissBand: 5 * dock.s
+            readonly property real dismissSlack: 8 * dock.s
+
+            /**
+             * The rect the outline is drawn around: the panel plus the bar as one
+             * block, or the panel alone once the dock has been switched off from
+             * inside this very panel (the bar is off-screen and translating, so
+             * its resting rect would just block clicks on the desktop behind it).
+             */
+            readonly property rect dismissBase: dockForcedOpen
+                ? Qt.rect(dockPanelRegion.x, dockPanelRegion.y, dockPanelRegion.width, dockPanelRegion.height)
+                : Qt.rect(dockSettingsUnion.x, dockSettingsUnion.y, dockSettingsUnion.width, dockSettingsUnion.height)
+
+            /** The outline's outer edge, which is also how far the region grows. */
+            readonly property rect dismissBox: Qt.rect(
+                dismissBase.x - dismissSlack - dismissBand,
+                dismissBase.y - dismissSlack - dismissBand,
+                dismissBase.width + (dismissSlack + dismissBand) * 2,
+                dismissBase.height + (dismissSlack + dismissBand) * 2)
+
+            /**
+             * Written imperatively by the settle timer below, so this must stay
+             * writable: making it `readonly` compiles cleanly, throws a TypeError
+             * on every assignment, and pins it at false — which silently disables
+             * the sentinel bands, because their `enabled` requires it. That is
+             * the whole of click-away, gone, with nothing in the log but a
+             * warning nobody reads.
+             */
+            property bool dockPanelSettled: false
+
+            /**
+             * The four outline bands, as rects, 0 top / 1 bottom / 2 left /
+             * 3 right.
+             *
+             * A function rather than four sets of bindings so the outline's
+             * completeness is something that can be CHECKED: a harness can walk
+             * the perimeter of `dismissBox` and assert that every step of it is
+             * inside one of these, which is the property that makes the sentinel
+             * a closed loop. Four hand-written bindings can be verified only by
+             * looking at them, and looking is what missed this before.
+             */
+            function dismissBandRect(i) {
+                const b = dismissBox;
+                const t = dismissBand;
+                if (i === 0)
+                    return Qt.rect(b.x, b.y, b.width, t);
+                if (i === 1)
+                    return Qt.rect(b.x, b.y + b.height - t, b.width, t);
+                if (i === 2)
+                    return Qt.rect(b.x, b.y, t, b.height);
+                return Qt.rect(b.x + b.width - t, b.y, t, b.height);
+            }
+
             screen: modelData
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore
@@ -782,8 +895,65 @@ ShellRoot {
 
             anchors { top: true; left: true; right: true; bottom: true }
 
-            mask: suppressed || dock.empty ? dockHiddenRegion : (Flags.dockAutoHide ? ((dock.revealSession || dock.hovered) ? dockRevealUnion : dockRevealRegion) : ((dock.hovered || dock.previewOpen) ? dockLiveUnion : dockRegion))
+            /**
+             * The dock's settings panel floats above the bar, so it needs its own
+             * region or it draws without taking clicks. Unioned with the bar
+             * itself: the gear that opened it stays clickable to close it, and the
+             * chips stay live underneath.
+             */
+            Region {
+                id: dockSettingsUnion
+                readonly property real l: Math.min(dockRegion.x, dockPanelRegion.x)
+                readonly property real t: Math.min(dockRegion.y, dockPanelRegion.y)
+                x: l
+                y: t
+                width: Math.max(dockRegion.x + dockRegion.width, dockPanelRegion.x + dockPanelRegion.width) - l
+                height: Math.max(dockRegion.y + dockRegion.height, dockPanelRegion.y + dockPanelRegion.height) - t
+            }
+
+            Region {
+                id: dockPanelRegion
+                x: dockPanel.x
+                y: dockPanel.y
+                width: dockPanel.width
+                height: dockPanel.height
+            }
+
+            /**
+             * The panel is a sibling of the bar, not a child, so it is NOT
+             * translated when the bar slides away. That is deliberate and is what
+             * `dockForcedOpen` above exists for: switching the dock off from
+             * inside its own settings must not strand the user.
+             *
+             * While the panel is open the region is `dismissBox`, which encloses
+             * the panel, the bar and the sentinel outline in one rect. It is a
+             * single rect rather than the two rects it stands in for, which is
+             * what the click floor exists to cover: the dead space this
+             * over-generous shape adds is exactly the space where a click would
+             * otherwise be delivered to this window and hit nothing at all.
+             *
+             * The outline has to be IN the region or its motion events are never
+             * delivered, and the whole dismissal mechanism is those events.
+             */
+            mask: dock.settingsOpen
+                ? dockDismissRegion
+                : (suppressed || dock.empty ? dockHiddenRegion
+                    : (Flags.dockAutoHide ? ((dock.revealSession || dock.hovered) ? dockRevealUnion : dockRevealRegion)
+                        : ((dock.hovered || dock.previewOpen) ? dockLiveUnion : dockRegion)))
             Region { id: dockHiddenRegion }
+
+            /**
+             * The region behind the panel: the sentinel outline plus everything
+             * it encloses. Its outer edge is `dismissBox`, so the bands declared
+             * alongside the panel below are inside it.
+             */
+            Region {
+                id: dockDismissRegion
+                x: dockWin.dismissBox.x
+                y: dockWin.dismissBox.y
+                width: dockWin.dismissBox.width
+                height: dockWin.dismissBox.height
+            }
 
             /**
              * A thin bottom-centre strip kept in the input mask while the dock
@@ -813,18 +983,41 @@ ShellRoot {
             }
 
             /**
-             * The area a hover popover can occupy: the bar plus everything
-             * above it (popovers anchor to a chip's top, up to ~200px tall).
-             * Kept live whenever the bar is up, so the cursor can walk up
-             * into the preview and click a window row. Fixed geometry — no
-             * QML mapping/plumbing involved.
+             * The area above the bar that has to stay live while the bar is up.
+             *
+             * This is the distance the pointer must travel before the dock will
+             * let go, so it is not decoration — it IS the hide threshold, and it
+             * was set for the tallest thing that can float above the bar (a
+             * window preview, ~190px) and then applied unconditionally. With
+             * nothing floating, that meant 190px of screen stayed hot and the
+             * dock hung around long after the pointer had clearly left it.
+             *
+             * So the band is sized to what is actually there:
+             *
+             *  - A preview is open: the full 190, and 100px past each end,
+             *    because the cursor genuinely walks up into it and clicks a
+             *    window row. That needs input, and the preview is wider than
+             *    the bar.
+             *  - Otherwise: just past the tallest chip tooltip (~44px, and
+             *    non-interactive, so this is about the dock not blinking out
+             *    from under a tooltip rather than about taking clicks). The
+             *    side margin is near zero for the same reason — a tooltip is
+             *    centred on a chip, so it can overhang the bar's end, but it
+             *    never needs to be clicked.
+             *
+             * `previewOpen` rather than "is the pointer over a chip", because
+             * the deep band exists for the preview's benefit alone; claiming it
+             * while merely hovering a chip would reinstate the long threshold
+             * for the most common interaction there is.
              */
             Region {
                 id: dockPopBand
-                readonly property real bandH: 190 * dock.s
-                x: Math.max(0, dock.x - 100 * dock.s)
+                readonly property bool deep: dock.previewOpen
+                readonly property real bandH: (deep ? 190 : 44) * dock.s
+                readonly property real sideW: (deep ? 100 : 6) * dock.s
+                x: Math.max(0, dock.x - sideW)
                 y: Math.max(0, dock.y - bandH)
-                width: dock.width + 200 * dock.s
+                width: dock.width + sideW * 2
                 height: bandH + dock.height
             }
 
@@ -872,6 +1065,31 @@ ShellRoot {
 
             DockBar {
                 id: dock
+
+                /**
+                 * Above the settings panel, which sits at z 200.
+                 *
+                 * This inverts the popover relationship, and deliberately. The
+                 * panel is anchored to the bar's TOP, so the two never overlap
+                 * — nothing the bar paints in its own rectangle can cover the
+                 * panel. What DOES overlap is what the bar floats UP out of
+                 * itself: the chip tooltips and the multi-window preview, both
+                 * anchored above their chip, which is to say inside the panel.
+                 *
+                 * As siblings those were unreachable whenever the panel was open:
+                 * hovering a chip to read its name showed a tooltip painted
+                 * behind an opaque panel, so it simply was not there. A z value
+                 * is per-branch and there is no "escape to the window root", so
+                 * the bar has to come above the panel as a whole to lift its own
+                 * decorations with it.
+                 *
+                 * The tooltips are the reason this is right rather than merely
+                 * convenient: the panel being open must not cost the user the
+                 * names of the apps they are pointing at. Input is unaffected —
+                 * a tooltip is non-interactive by design, so it never claims a
+                 * click from a panel row underneath it.
+                 */
+                z: 250
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: dockWin.dockGap
@@ -898,6 +1116,160 @@ ShellRoot {
                         }
                     }
                 }
+            }
+
+            /**
+             * The dock's OWN settings panel, hosted here rather than inside
+             * DockBar for one reason: it must survive the bar being translated
+             * off the bottom edge, because the panel holds the "Dock" switch and
+             * the bar holds the gear. Two things make that work.
+             *
+             * It is a SIBLING of the bar, and it anchors to the bar's layout
+             * position — a Transform moves the painting, not `x`/`y`, so
+             * anchoring here reads the untranslated position and the panel holds
+             * still while the bar slides away.
+             *
+             * And the shell, not the dock, decides the panel's palette input and
+             * its input-mask region, because the mask has to cover the panel
+             * alone in `dockForcedOpen` — the bar is gone, so the union would be
+             * wrong.
+             *
+             * Loaded, not instantiated, so the app list's desktop-entry scan is
+             * not paid for while the panel is closed. Its size is left entirely
+             * to the Loader's own implicit sizing, which follows the page's
+             * `implicitWidth`/`implicitHeight`: binding `width` to `item.width`
+             * looks equivalent and is not — the Loader resizes a loaded item to
+             * its own width, so on the tick the item appears the width reads 0,
+                 * the Loader resizes the page to 0, and the two pin each other at
+             * zero. That is the panel's own input-mask region, so a silent zero
+             * there is a panel that draws and takes no clicks.
+             */
+            Loader {
+                id: dockPanel
+                active: dock.settingsOpen
+                visible: dock.settingsOpen
+                z: 200
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: dock.top
+                /* A POSITIVE bottom margin lifts the panel clear of the bar, as
+                 * it does for every other margin: the item's bottom sits that
+                 * many pixels above the anchor line. */
+                anchors.bottomMargin: dock.panelGap
+                onActiveChanged: if (active) {
+                    dockWin.dockPanelSettled = false;
+                    dockPanelSettle.restart();
+                }
+
+                sourceComponent: Component {
+                    DockSurface {
+                        s: dock.s
+                        pal: dock.dockPal
+                        open: true
+                        onRequestClose: dock.closeSettings()
+                    }
+                }
+            }
+
+            /**
+             * The settle period, as a timer rather than a condition.
+             *
+             * 300ms is long enough that a hover event still in flight from the
+             * gear click cannot be read as the pointer having already left, and
+             * short enough that a deliberate dismissal is not noticeably delayed.
+             *
+             * This is a guard against the instant of opening and nothing else.
+             * It is NOT a precondition for being allowed to dismiss — an earlier
+             * "arm once the pointer has been over the panel" gate was, and that
+             * suppressed the exact case it was written to guard: the panel is
+             * opened from the GEAR, so on the ordinary path the pointer is on the
+             * bar and never crosses the panel at all.
+             */
+            Timer {
+                id: dockPanelSettle
+                interval: 300
+                repeat: false
+                onTriggered: if (dock.settingsOpen)
+                    dockWin.dockPanelSettled = true
+            }
+
+            /**
+             * The sentinel: a thin closed outline around the panel's block, and
+             * the whole of click-away.
+             *
+             * Four bands rather than one outline item, because an item covering
+             * the outline's interior would overlap the panel and the bar and
+             * compete with them for hover. As separate bands the only thing that
+             * can claim a point in any of them is the band itself, so "the
+             * pointer is in a band" is a fact and not a race.
+             *
+             * Top and bottom span the full width, so the corners are covered by
+             * them rather than left as gaps.
+             *
+             * Each band is a real Item with a HoverHandler attached, because a
+             * pointer handler is not an Item and carries no geometry of its own
+             * — it is delivered events for the item it hangs off. So the Item is
+             * the band and the handler is what watches it.
+             *
+             * The geometry comes from `dismissBandRect` rather than being written
+             * out here, because the SHAPE is the part that has to be right: a gap
+             * in the outline is a direction the pointer can leave without
+             * anything noticing, which is exactly the failure being fixed. Rects
+             * in a function can be walked and tested for coverage; four sets of
+             * arithmetic written inline can only be eyeballed, and eyeballing is
+             * what missed this the first time.
+             *
+             * z is the floor's, and it is below the bar (0) and the panel (200):
+             * these are empty Items, so nothing is painted, and being underneath
+             * means they cannot intercept a click meant for a chip or a row.
+             */
+            Repeater {
+                model: 4
+                Item {
+                    id: band
+                    required property int index
+                    z: -1
+                    readonly property rect r: dockWin.dismissBandRect(index)
+                    x: r.x
+                    y: r.y
+                    width: r.width
+                    height: r.height
+
+                    HoverHandler {
+                        /* Held off until the panel has settled, and while a window
+                         * preview is up: the preview floats out of the bar over
+                         * the top band, and dismissing the settings because the
+                         * pointer travelled into it would not be a dismissal the
+                         * user asked for. */
+                        enabled: dock.settingsOpen && dockWin.dockPanelSettled && !dock.previewOpen
+                        onHoveredChanged: if (hovered)
+                            dock.closeSettings()
+                    }
+                }
+            }
+
+            /**
+             * The other half of click-away: a click that lands on THIS window but
+             * on neither the panel nor the bar.
+             *
+             * The region while the panel is open is one rect that encloses both,
+             * which leaves dead space beside the panel, in the gap between panel
+             * and bar, and all the way out to the sentinel. A click in any of it
+             * is delivered to this window and hits nothing, so it deserves a
+             * direct answer rather than waiting on a hover that may not come.
+             *
+             * The sentinel only covers the OUTER edge, so this is what covers the
+             * slack strip and the interior dead space. Between them every click
+             * that can be seen is answered.
+             *
+             * z is BELOW the bar (which is 0) and far below the panel (200), so
+             * this never sees a click meant for a chip or a row — it is a floor,
+             * not a lid.
+             */
+            MouseArea {
+                z: -1
+                anchors.fill: parent
+                visible: dock.settingsOpen
+                onClicked: dock.closeSettings()
             }
 
             HoverHandler {

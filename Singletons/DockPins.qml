@@ -45,6 +45,30 @@ Singleton {
         return root.pins.indexOf(id) >= 0;
     }
 
+    /**
+     * Move the pin at `from` to `to`, both indices into the pins array. This is
+     * the one write path for a drag-reorder in the dock: the array is the dock's
+     * order of record, so a drop rewrites it and every monitor's DockBar (and
+     * the launcher's pin badge) follows through the `pins` change.
+     *
+     * Removing first and inserting at `to` in the shortened array is what makes
+     * all four directions land correctly — move(0,2) and move(3,1) on
+     * [A,B,C,D] give [B,C,A,D] and [A,D,B,C] with no index fixup.
+     */
+    function move(from, to) {
+        var n = root.pins.length;
+        if (n < 2)
+            return;
+        from = Math.max(0, Math.min(n - 1, Math.trunc(from)));
+        to = Math.max(0, Math.min(n - 1, Math.trunc(to)));
+        if (from === to)
+            return;
+        var next = root.pins.slice();
+        next.splice(to, 0, next.splice(from, 1)[0]);
+        root.pins = next;
+        root.save();
+    }
+
     function toggle(id) {
         if (!id) return;
         var next = root.pins.slice();

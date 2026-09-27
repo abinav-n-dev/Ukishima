@@ -1,20 +1,22 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import "../Singletons"
 
 /**
- * Shared base for the morphing settings surfaces: the category index and each
- * sub-surface. Carries the keyboard-navigable row registry and the glowing
- * row-soul seam, and morphs back to the parent index when empty space is clicked
- * on a sub-surface. The deriving surface sets `rows`, optionally `backSurface`,
- * and lays out its own content column (header, section labels, SettingsRow lines).
+ * The PILL's morphing settings surface: the category index and each
+ * sub-surface. Carries the pill morphology (the margins below), the glowing
+ * row-soul seam, and morphs back to the parent index when empty space is
+ * clicked on a sub-surface. The deriving surface sets `rows`, optionally
+ * `backSurface`, and lays out its own content column (header, section labels,
+ * SettingsRow lines).
  *
- * Each `rows` entry pairs a row item with its control kind and the backing getter
- * and setter: `seg` cycles a segmented choice (wrapping), `toggle` flips a
- * boolean, `scrub` bumps a numeric scrub through its `bump(dir)`, `nav` morphs
- * to another surface. The host routes arrow keys through `kbMove`,
- * `kbAdjust` and `kbActivate`; hover and clicks route through `reportRowHover`
- * and `activateRow`, keeping `kbIndex` and the seam in sync.
+ * The row behaviour — the registry, the keyboard cursor and the click/hover
+ * routing — lives in `SettingsRows` and is only forwarded from here, so this
+ * file is purely the pill's APPEARANCE. That split is what lets the dock grow
+ * its own settings surface with the same behaviour and a different look: a
+ * change to the pill's margins or seam no longer reaches anything that is not
+ * a pill surface, and vice versa.
  */
 PillSurface {
     id: root
@@ -27,104 +29,53 @@ PillSurface {
     property string backSurface: ""
     signal requestSurface(string name)
 
-    property Item focusRowItem: null
-    property int kbIndex: -1
+    /** The row registry, assigned by the deriving surface. */
     property var rows: []
 
-    function reportRowHover(item, hovered) {
-        if (hovered) {
-            focusRowItem = item;
-            kbIndex = rowIndexOf(item);
-        }
-    }
-    onActiveChanged: if (!active) {
-        focusRowItem = null;
-        kbIndex = -1;
-    }
-
-    function rowIndexOf(item) {
-        for (var i = 0; i < rows.length; i++)
-            if (rows[i].item === item)
-                return i;
-        return -1;
-    }
-
-    /** Step a seg row's value by `dir`, wrapping at both ends like a mouse click. */
-    function segCycle(r, dir) {
-        var n = r.vals.length;
-        var i = r.vals.indexOf(r.get());
-        r.set(r.vals[(((i < 0 ? 0 : i) + dir) % n + n) % n]);
-    }
-
-    function kbMove(dir) {
-        if (!rows.length)
-            return;
-        kbIndex = Math.max(0, Math.min(rows.length - 1, (kbIndex < 0 ? 0 : kbIndex + dir)));
-        focusRowItem = rows[kbIndex].item;
-    }
-
-    function kbAdjust(dir) {
-        if (!rows.length)
-            return;
-        if (kbIndex < 0) {
-            kbIndex = 0;
-            focusRowItem = rows[0].item;
-        }
-        var r = rows[kbIndex];
-        if (r.kind === "seg")
-            segCycle(r, dir);
-        else if (r.kind === "toggle")
-            r.set(dir > 0);
-        else if (r.kind === "scrub")
-            r.bump(dir);
-    }
-
-    function kbActivate() {
-        if (kbIndex < 0)
-            return;
-        var r = rows[kbIndex];
-        if (r.activate)
-            r.activate();
-        else if (r.kind === "toggle")
-            r.set(!r.get());
-        else if (r.kind === "nav")
-            root.requestSurface(r.surface);
-        else if (r.kind === "seg")
-            segCycle(r, 1);
-    }
-
     /**
-     * A click anywhere on a row drives its control: toggles flip, nav rows open
-     * their surface, and segmented rows step to the next value (wrapping). The
-     * control's own hit areas stay on top, so clicking a specific segment still
-     * picks it directly.
+     * The PILL's palette, published for the rows it contains. This is the only
+     * place the pill's settings colours are resolved, so a row cannot reach past
+     * its host: the dock's settings panel publishes the dock's palette under the
+     * same name and its rows come out in the dock's colours with no change here.
      */
-    function activateRow(item) {
-        var idx = rowIndexOf(item);
-        if (idx < 0)
-            return;
-        kbIndex = idx;
-        focusRowItem = item;
-        var r = rows[idx];
-        if (r.activate)
-            r.activate();
-        else if (r.kind === "toggle")
-            r.set(!r.get());
-        else if (r.kind === "nav")
-            root.requestSurface(r.surface);
-        else if (r.kind === "seg")
-            segCycle(r, 1);
+    readonly property SettingsPalette pal: SettingsPalette {
+        ink: Theme.cream
+        sub: Theme.subtle
+        faint: Theme.faint
+        dim: Theme.dim
+        tile: Theme.frameBg
+        hair: Theme.hairSoft
+        edge: Theme.border
+        accentInk: Theme.cream
+        accent: Theme.verm
+        accentDeep: Theme.verm
     }
 
-    readonly property bool rowFocused: focusRowItem !== null && active
+    /** The behaviour, shared with any other host that wants it. */
+    readonly property SettingsRows nav: SettingsRows {
+        active: root.active
+        rows: root.rows
+        onRequestSurface: (name) => root.requestSurface(name)
+    }
+
+    readonly property Item focusRowItem: nav.focusRowItem
+    readonly property int kbIndex: nav.kbIndex
+
+    function reportRowHover(item, hovered) { nav.reportRowHover(item, hovered); }
+    function activateRow(item) { nav.activateRow(item); }
+    function kbMove(dir) { nav.kbMove(dir); }
+    function kbAdjust(dir) { nav.kbAdjust(dir); }
+    function kbActivate() { nav.kbActivate(); }
+
+    readonly property bool rowFocused: nav.focusRowItem !== null && active
 
     readonly property point rowPoint: {
         void root.width;
         void root.height;
-        void root.focusRowItem;
-        if (!focusRowItem)
+        void nav.focusRowItem;
+        if (!nav.focusRowItem)
             return Qt.point(4 * root.s, root.height / 2);
-        return focusRowItem.mapToItem(root, 4 * root.s, focusRowItem.height / 2);
+        return nav.focusRowItem.mapToItem(root, 4 * root.s, nav.focusRowItem.height / 2);
     }
 
     ameForm: rowFocused ? "rowseam" : "off"

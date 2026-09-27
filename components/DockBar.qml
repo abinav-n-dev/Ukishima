@@ -27,6 +27,13 @@ import "../Singletons"
  * they survive restarts and are shared by every monitor's dock. The item list
  * is rebuilt on an interval and whenever pins change, because the toplevel
  * model's .values is not reliably notifiable.
+ *
+ * Pinned chips can be dragged sideways to reorder them, so the dock's order is
+ * purely the user's own liking (see `beginDrag` / `slotForX`). Only pinned
+ * chips move: a running-but-unpinned chip has no place in the persistent order,
+ * and it is a click target. The unpinned shelf below the divider takes a
+ * stable first-seen session order (DockState) instead of a workspace order, so
+ * it does not reshuffle as windows travel between workspaces.
  */
 Item {
     id: root
@@ -47,7 +54,48 @@ Item {
     /** Fed by shell.qml: surface open / monitor fullscreen / game mode. */
     property bool suppressed: false
 
-    readonly property bool hidden: Flags.dockAutoHide && !revealSession && !hovered
+    /**
+     * The dock's own settings panel, opened from the gear chip below. It is one
+     * page, not a stack: the app picker used to be a second surface reached by
+     * a nav row, but it is one setting among the dock's others, so it now opens
+     * in place under its own row and there is nothing to navigate between.
+     *
+     * The panel itself is NOT a child of this item. The shell hosts it as a
+     * sibling, because this bar is translated off the bottom edge when the dock
+     * is disabled — a panel inside it would slide away and take the "Dock"
+     * switch with it, stranding anyone who turned the dock off from inside its
+     * own settings with no way back. Only the open/closed state is owned here;
+     * the shell draws and places the panel.
+     */
+    property bool settingsOpen: false
+
+    /** The gear's action, and the only way in or out of the panel. */
+    function toggleSettings() {
+        if (root.settingsOpen)
+            root.closeSettings();
+        else
+            root.openSettings();
+    }
+
+    function openSettings() {
+        root.settingsOpen = true;
+    }
+
+    function closeSettings() {
+        root.settingsOpen = false;
+    }
+
+    /**
+     * Auto-hide must not retract the bar out from under its own open panel: the
+     * gear is the panel's visible close affordance, and a bar that slid away
+     * would leave the panel floating over an empty strip of screen.
+     *
+     * This says nothing about `suppressed` — the dock being switched off slides
+     * the bar whatever the panel is doing, on purpose. The panel is a sibling of
+     * this item in the window, so it stays put and the "Dock" switch inside it
+     * remains the way back.
+     */
+    readonly property bool hidden: Flags.dockAutoHide && !revealSession && !hovered && !settingsOpen
 
     /** The bar is down (retracted or suppressed) and its contents are inert. */
     readonly property bool down: hidden || suppressed
@@ -58,8 +106,159 @@ Item {
     readonly property bool titled: !Flags.dockMinimal
 
     readonly property real dockH: (minimal ? 58 : 68) * s
-    readonly property real chipW: (minimal ? 56 : 58) * s
+    /* Full mode carries a label under the icon, so its chips are wider than
+     * minimal's: at 58 the label box was 52px — about nine characters — and
+     * every real name ("MissionCenter", "RQuickShare") elided. 68 gives the
+     * label 62px. The drag step is derived from chipW, so the wider chip moves
+     * the drop slots with it rather than needing its own constant. */
+    readonly property real chipW: (minimal ? 56 : 68) * s
     readonly property int chipSpacing: 2
+
+    // ---- pinned-chip drag reorder ----
+    // Dragging a pinned chip rewrites the shared pins array, so the order is
+    // the user's own liking and every monitor's dock follows through DockPins.
+    // Only pinned chips are draggable: an unpinned running chip has no place in
+    // the persistent order, and it is a click target, so it keeps plain clicks.
+    //
+    // `dragFrom`/`dragTo` are RUN SLOTS (0-based positions in the leading run
+    // of pinned chips, which are also their model indices), not pins-array
+    // indices. The two differ whenever a pin's desktop entry has gone missing:
+    // that pin still occupies a slot in the array but contributes no chip, so
+    // the run is shorter than the array. Slots drive the geometry and the drop
+    // marker; the run slot is translated to a pins index only at commit.
+    /** Run slot of the chip being dragged, or -1 when no drag is in flight. */
+    property int dragFrom: -1
+    /** Run slot the dragged chip would land on if released now. */
+    property int dragTo: -1
+    /** True once the pointer passed the drag threshold, i.e. this is a reorder
+     *  and not a click. Stays false for a press-and-release in place. */
+    property bool dragMoved: false
+    readonly property bool dragActive: root.dragFrom >= 0 && root.dragMoved
+    /** Horizontal travel in root pixels before a press counts as a drag. */
+    readonly property real dragThreshold: 8 * s
+    property real dragPressX: 0
+
+    /**
+     * The pinned section is a contiguous run of equal-width chips at the front
+     * of the row, so a pointer position maps to a run slot by arithmetic rather
+     * than hit-testing.
+     *
+     * One step is a chip plus its gap, and because the row starts at x=0 the
+     * step lands on each chip's own left edge — so plain rounding puts the
+     * switch exactly at each chip's CENTRE, which is the rule that feels right:
+     * the dragged chip drops after every chip whose centre the pointer has
+     * already passed. A half-step bias here would flip the slot as soon as the
+     * pointer merely touched the next chip's left edge, making the dock jump a
+     * slot early on every drag to the right. Clamped to the last slot, so
+     * dragging past the end still means "last", never one past it.
+     */
+    function slotForX(xInChips, count) {
+        if (count <= 0)
+            return -1;
+        var step = root.chipW + root.chipSpacing * root.s;
+        if (step <= 0)
+            return 0;
+        return Math.max(0, Math.min(count - 1, Math.round(xInChips / step)));
+    }
+
+    /** Pins-array index behind a run slot, or -1 when the slot is not laid out. */
+    function pinIndexOfSlot(slot) {
+        if (slot < 0)
+            return -1;
+        var seen = 0;
+        var list = root.items || [];
+        for (var i = 0; i < list.length; i++) {
+            var c = list[i];
+            if (!c || c.divider || c.pinIndex === undefined)
+                continue;
+            if (seen === slot)
+                return c.pinIndex;
+            seen += 1;
+        }
+        return -1;
+    }
+
+    /**
+     * Arm a drag on a pinned chip. Nothing moves yet: the press is only
+     * remembered, and the chip lifts once the pointer travels past the
+     * threshold, so an ordinary click on a chip still launches/focuses instead
+     * of being eaten as a no-op reorder.
+     */
+    function beginDrag(slot, mouse) {
+        if (slot < 0)
+            return;
+        root.dragFrom = slot;
+        root.dragTo = slot;
+        root.dragMoved = false;
+        root.dragPressX = mouse.x;
+    }
+
+    /**
+     * Track the pointer, promoting the press to a drag once it has moved far
+     * enough, then keep the drop slot following the pointer. `mouse` is in the
+     * chip's own coordinates; mapping through the chip re-bases it into the row
+     * without the caller having to know where the row sits.
+     */
+    function trackDrag(chipItem, mouse) {
+        if (root.dragFrom < 0)
+            return;
+        if (!root.dragMoved && Math.abs(mouse.x - root.dragPressX) < root.dragThreshold)
+            return;
+        root.dragMoved = true;
+        var p = chipItem.mapToItem(chips, mouse.x, 0);
+        root.dragTo = root.slotForX(p.x, root.dragPinnedCount);
+    }
+
+    /**
+     * Commit or discard the drag. The pins array is written only on a real
+     * reorder, so a press that never moved cannot perturb the saved order.
+     * `dragMoved` is deliberately left set: onClicked fires straight after
+     * onReleased and reads it to swallow the click that ends a drag.
+     */
+    function endDrag() {
+        if (root.dragFrom < 0)
+            return;
+        var fromSlot = root.dragFrom;
+        var toSlot = root.dragTo;
+        var moved = root.dragMoved;
+        root.dragFrom = -1;
+        root.dragTo = -1;
+        if (moved && toSlot >= 0 && toSlot !== fromSlot) {
+            var from = root.pinIndexOfSlot(fromSlot);
+            var to = root.pinIndexOfSlot(toSlot);
+            if (from >= 0 && to >= 0)
+                DockPins.move(from, to);
+        }
+    }
+
+    /**
+     * Drop an in-flight drag whose chip no longer exists — its pin was unpinned
+     * or its desktop entry vanished mid-press, so the delegate holding the
+     * grab is gone and no release will ever arrive. Without this the bar would
+     * keep a stale drop marker alive until the next press.
+     */
+    function abandonStaleDrag() {
+        if (root.dragFrom >= 0 && root.dragFrom >= root.dragPinnedCount) {
+            root.dragFrom = -1;
+            root.dragTo = -1;
+            root.dragMoved = false;
+        }
+    }
+
+    /** Length of the leading run of pinned chips, i.e. the reorderable width.
+     *  Counted from the freshly built `items` (not the pins array, which may
+     *  be longer) and not via itemsModel.get(), which notifies nothing —
+     *  `items` being reassigned on every rebuild is what re-evaluates this. */
+    readonly property int dragPinnedCount: {
+        var n = 0;
+        var list = root.items || [];
+        for (var i = 0; i < list.length; i++) {
+            var c = list[i];
+            if (c && !c.divider && c.pinIndex !== undefined)
+                n += 1;
+        }
+        return n;
+    }
 
     // ---- dock palette: the dock resolves its own effective theme, so the pane,
 //      copy, hairline and the active/dot accents all come from ONE palette —
@@ -117,12 +316,28 @@ Item {
         : (root.dockEffManual ? root.dockHue.cream
         : (root.dockEffDyn ? Dyn.cream
         : (root.dockEffLight ? "#2a241f" : "#ececec")))
+    /**
+     * How much of the accent to blend into the pane.
+     *
+     * Only for the modes whose accent is drawn FROM their own palette — manual
+     * and dynamic, where pane and accent are two tokens of one generated scheme
+     * and the tint is what makes the bar look like it belongs to that palette.
+     *
+     * Zero for the static modes, which is what they need: light and dark are a
+     * NEUTRAL ramp, and the accent there is the pill's fixed orange. Blending 5%
+     * of #ff9a64 into the dark card's #171717 moved it to (35,29,26) — a warm
+     * brown that reads as neither the pill's dark nor a tint of anything, which
+     * is why a static dark dock looked brownish and stopped matching the pill.
+     * Zero also makes static light/dark agree with `Theme.cardTop`/`cardBot`
+     * exactly, which is the point of those two modes being static at all.
+     */
+    readonly property real dockPaneTint: (root.dockEffManual || root.dockEffDyn) ? 1 : 0
     readonly property color dockPaneTop: root.dockGlass
-        ? Qt.alpha(root.blendColor(root.dockCardTop, root.dockAccent, 0.05), root.glassAlpha)
-        : root.blendColor(root.dockCardTop, root.dockAccent, 0.05)
+        ? Qt.alpha(root.blendColor(root.dockCardTop, root.dockAccent, 0.05 * root.dockPaneTint), root.glassAlpha)
+        : root.blendColor(root.dockCardTop, root.dockAccent, 0.05 * root.dockPaneTint)
     readonly property color dockPaneBot: root.dockGlass
-        ? Qt.alpha(root.blendColor(root.dockCardBot, root.dockAccent, 0.03), root.glassAlpha)
-        : root.blendColor(root.dockCardBot, root.dockAccent, 0.03)
+        ? Qt.alpha(root.blendColor(root.dockCardBot, root.dockAccent, 0.03 * root.dockPaneTint), root.glassAlpha)
+        : root.blendColor(root.dockCardBot, root.dockAccent, 0.03 * root.dockPaneTint)
     readonly property color dockBorder: root.dockEffLight
         ? Qt.alpha("#000000", 0.12) : Qt.alpha("#ffffff", 0.14)
     readonly property color dockSheen: root.dockEffLight
@@ -138,6 +353,31 @@ Item {
         ? Qt.alpha("#3b3833", 0.6) : Qt.alpha("#cfcdd4", 0.55))
     readonly property color dockHair: Qt.alpha(root.dockCream, 0.08)
     readonly property color dockDim: Qt.rgba(0, 0, 0, 0.45)
+
+    /**
+     * The DOCK's settings palette, in the shape a settings surface's rows read.
+     *
+     * This is the whole point of handing the panel a palette object rather than
+     * letting its rows reach for the pill's `Theme`: the dock's settings are
+     * built from the dock's own tokens, resolved from the dock's own theme mode.
+     * So a forced-light dock gets dark settings text, a manual dock's settings
+     * are tinted by the dock's own hue, and changing the pill's theme — or the
+     * pill's interface settings, margins or row seam — cannot reach any of it.
+     */
+    readonly property SettingsPalette dockPal: SettingsPalette {
+        ink: root.dockCream
+        sub: root.dockCopy
+        faint: root.dockFaint
+        dim: Qt.alpha(root.dockCopy, 0.75)
+        tile: root.dockHighlight
+        hair: root.dockHair
+        edge: root.dockBorder
+        accentInk: root.dockCream
+        accent: root.dockAccent
+        accentDeep: root.dockActive
+        paneTop: root.dockPaneTop
+        paneBot: root.dockPaneBot
+    }
 
     property var pins: DockPins.pins
     property var items: []
@@ -254,11 +494,11 @@ Item {
      * Rebuild only when the underlying state actually changed. `items` stays
      * the live source of truth; `itemsModel` is a ListModel with flat, typed
      * roles that the chip Repeater binds to. When only live state flips (a
-     * window becoming active, a tab opening, a workspace re-sort) the rows are
-     * patched in place with set()/move(): the chip delegates stay alive, so
-     * hover swell, loaded icons, tooltips and any open preview are never
-     * dropped — which is what used to read as a "shrink-and-bounce" a moment
-     * after clicking a chip. Because rows update without recreating, the
+     * window becoming active, a tab opening) the rows are patched in place
+     * with set()/move(): the chip delegates stay alive, so hover swell, loaded
+     * icons, tooltips and any open preview are never dropped — which is what
+     * used to read as a "shrink-and-bounce" a moment after clicking a chip.
+     * Because rows update without recreating, the
      * active dot also answers immediately, even while the pointer is parked on
      * the dock. The model is rebuilt only when the chip set itself changes (an
      * app launched or quit, a pin toggled), which legitimately needs fresh
@@ -299,6 +539,7 @@ Item {
                 root.itemsModel.append(root.chipRow(next[i]));
         }
         root.items = next;
+        root.abandonStaleDrag();
         DockState.empty = root.items.length === 0;
     }
 
@@ -316,15 +557,19 @@ Item {
             && m.suggested === !!o.suggested
             && m.running === !!o.running
             && m.active === !!o.active
-            && m.wsSort === (o.wsSort || 0);
+            && m.ordSort === (o.ordSort || 0)
+            && m.pinIndex === (o.pinIndex === undefined ? -1 : o.pinIndex);
     }
 
     /** Cheap fingerprint of a chip's window set (addresses + workspace +
      *  minimized), so preview reads know when a row genuinely changed even
-     *  though its fields look identical. */
+     *  though its fields look identical. The divider carries no window list, so
+     *  it hashes to "" — without that guard this threw on the divider and
+     *  aborted the whole row-patch pass, leaving `items` stale whenever the
+     *  chip set held still but live state changed. */
     function winHash(o) {
         var s = "";
-        var ws = o.windows;
+        var ws = (o && o.windows) ? o.windows : [];
         for (var i = 0; i < ws.length; i++) {
             var w = ws[i];
             if (!w) continue;
@@ -383,13 +628,14 @@ Item {
             suggested: !!o.suggested,
             running: !!o.running,
             active: !!o.active,
-            wsSort: o.wsSort || 0,
+            ordSort: o.ordSort || 0,
+            pinIndex: o.pinIndex === undefined ? -1 : o.pinIndex,
             rev: root.modelRev
         };
     }
 
     /** Reorder the list model rows to match the freshly built order (pins
-     *  first, then running apps sorted by workspace) using positional moves,
+     *  first, then running apps in session order) using positional moves,
      *  which shift existing delegates instead of recreating them. */
     function syncModelOrder(next) {
         for (var i = 0; i < root.itemsModel.count && i < next.length; i++) {
@@ -420,9 +666,96 @@ Item {
     }
 
     /**
-     * The window-class -> desktop-entry bridge: prefer the raw class match
-     * (firefox fires) and fall back to the final dotted segment so namespaced
-     * ids like org.wezfurlong.wezterm still resolve against a "wezterm" class.
+     * The one spelling of "which app is this?", used wherever the dock has to
+     * decide whether a window and a pin are the same program.
+     *
+     * A window class and a desktop-entry id name one app three different ways,
+     * and each of these is a real pairing on a real machine:
+     *
+     *   firefox              <-> firefox.desktop
+     *   org.gnome.Nautilus   <-> org.gnome.nautilus.desktop   (case)
+     *   Telegram             <-> org.telegram.desktop          (the ENTRY is
+     *                                                             namespaced,
+     *                                                             the class is
+     *                                                             not)
+     *
+     * The last dotted segment, lowercased, with any .desktop suffix dropped, is
+     * the same for all three. Comparing whole strings is not: it catches the
+     * first and misses the other two, which is the whole failure.
+     *
+     * A fourth spelling needed handling too, and it is the one that bites hardest
+     * because it is invisible in a desktop file: an Electron app reports its
+     * BUILD CHANNEL in the window class. Hyprland sees `Warp-stable` where the
+     * entry is `dev.warp.Warp.desktop`, and the two never match on any of the
+     * above. The channel describes the build, not the app, so it is not part of
+     * the app's identity and is dropped — but only from a known list, so
+     * `code` and `code-insiders` stay the two different apps they are.
+     *
+     * It is deliberately coarse — two entries sharing a last segment would both
+     * match a bare class — so it is only ever the SECOND attempt, after the
+     * exact match, and it is asked identically on both sides of every
+     * comparison. A rule that both sides apply the same way cannot make them
+     * disagree, which is the property that was missing.
+     */
+    function appKey(s) {
+        var q = String(s === undefined || s === null ? "" : s).toLowerCase();
+        if (q.endsWith(".desktop"))
+            q = q.slice(0, -8);
+        var dot = q.lastIndexOf(".");
+        var tail = dot >= 0 ? q.substring(dot + 1) : q;
+        var dash = tail.lastIndexOf("-");
+        if (dash > 0 && root.channelSuffixes.indexOf(tail.substring(dash + 1)) >= 0)
+            tail = tail.substring(0, dash);
+        return tail;
+    }
+
+    /** Build channels a window class may carry that an entry id never does. */
+    readonly property var channelSuffixes: [
+        "stable", "alpha", "beta", "dev", "nightly", "git", "next"
+    ]
+
+    /**
+     * The apps this dock's pins actually RENDER, as `appKey`s.
+     *
+     * The RESOLVED pins, not `DockPins.pins`: a pin whose app has been
+     * uninstalled still occupies a slot in the store but produces no chip, so
+     * counting it here would let the pinned/running split believe a running app
+     * was already pinned and silently drop it from the dock. An unresolvable
+     * pin has to keep its chip in the running half, which is the only place it
+     * can still be seen.
+     */
+    readonly property var pinnedAppKeys: {
+        var out = [];
+        for (var i = 0; i < root.pins.length; i++) {
+            var e = root.entryById(root.pins[i]);
+            if (e) out.push(root.appKey(e.id));
+        }
+        return out;
+    }
+
+    /**
+     * Does a pin already own this app? THE question the pinned/running split
+     * asks, as a name so the rule has exactly one definition.
+     *
+     * `id` may be a desktop-entry id or a raw window class — the whole point is
+     * that both sides of that comparison are reduced by `appKey` before being
+     * compared, because reducing them differently is precisely how one app came
+     * to be emitted into both halves of the dock.
+     */
+    function isPinnedApp(id) {
+        var k = root.appKey(id);
+        if (!k) return false;
+        return root.pinnedAppKeys.indexOf(k) >= 0;
+    }
+
+    /**
+     * The window-class -> desktop-entry bridge: the exact match first (so a
+     * class that IS an id never loses to a lookalike), then the tolerant key,
+     * which is what lets a bare class find its namespaced entry.
+     *
+     * The old fallback needed a dot in the class before it would even try, and
+     * compared only against the tail — so `Telegram` matched nothing at all and
+     * the app lost both its icon and its identity.
      */
     function entryFor(cls) {
         if (!cls) return null;
@@ -433,28 +766,42 @@ Item {
             if (e && e.id && e.id.toLowerCase() === q)
                 return e;
         }
-        var dot = q.lastIndexOf(".");
-        if (dot >= 0) {
-            var tail = q.substring(dot + 1);
-            for (var j = 0; j < apps.length; j++) {
-                var e2 = apps[j];
-                if (e2 && e2.id && e2.id.toLowerCase() === tail)
-                    return e2;
-            }
+        var want = root.appKey(cls);
+        if (!want) return null;
+        for (var j = 0; j < apps.length; j++) {
+            var e2 = apps[j];
+            if (e2 && e2.id && root.appKey(e2.id) === want)
+                return e2;
         }
         return null;
     }
 
-    /** Resolve a persisted pin by entry id, tolerating a .desktop suffix. */
+    /**
+     * Resolve a persisted pin by entry id, tolerating a .desktop suffix.
+     *
+     * The exact match is tried FIRST, and the suffix is only stripped as a
+     * fallback: a desktop-entry id may legitimately end in the literal
+     * ".desktop" (org.telegram.desktop, com.foo.desktop), and stripping
+     * unconditionally rewrote those to "org.telegram" and matched nothing — so
+     * the pin was saved, listed as pinned in the picker, and silently absent
+     * from the dock.
+     */
     function entryById(id) {
         if (!id) return null;
-        var q = id.toLowerCase();
-        if (q.endsWith(".desktop")) q = q.slice(0, -8);
         var apps = DesktopEntries.applications.values;
+        var q = id.toLowerCase();
         for (var i = 0; i < apps.length; i++) {
             var e = apps[i];
             if (e && e.id && e.id.toLowerCase() === q)
                 return e;
+        }
+        if (q.endsWith(".desktop")) {
+            var bare = q.slice(0, -8);
+            for (var j = 0; j < apps.length; j++) {
+                var e2 = apps[j];
+                if (e2 && e2.id && e2.id.toLowerCase() === bare)
+                    return e2;
+            }
         }
         return null;
     }
@@ -468,30 +815,6 @@ Item {
         for (var i = 0; i < ws.length; i++)
             if (ws[i] && ws[i].activated) return true;
         return false;
-    }
-
-    /**
-     * Workspace number for a window, read from its workspace name: names are
-     * "1", "2".. or "N:label" — the Quickshell toplevel's workspace object only
-     * ever reports id = -1, so the leading integer of the name is the usable
-     * key. Returns a sentinel for special workspaces and unnameable windows,
-     * so those sort after every numbered workspace.
-     */
-    function wsNum(w) {
-        if (!w || !w.workspace) return 2000000000;
-        var nm = String(w.workspace.name || "");
-        var m = /^(\d+)/.exec(nm);
-        return m ? parseInt(m[1], 10) : 2000000000;
-    }
-
-    /** Lowest numbered workspace among the windows (special workspaces ignored). */
-    function minWs(windows) {
-        var m = 2000000000;
-        for (var i = 0; i < windows.length; i++) {
-            var n = root.wsNum(windows[i]);
-            if (n < m) m = n;
-        }
-        return m;
     }
 
     function iconForName(name) {
@@ -517,24 +840,34 @@ Item {
             byClass[key].push(t);
         }
 
-        // Resolve every live class to a desktop entry once, then index the
-        // reverse map (entry id -> class keys) so a pinned entry picks up all
-        // of its window classes, not just the exact id match.
+        // Resolve every live class to a desktop entry once, then group the
+        // classes BY APP rather than by entry id.
+        //
+        // The grouping key is `appKey`, and that is the fix for a pinned app
+        // showing up twice. This map is written from window classes and read
+        // from pin ids, so a key the two sides spelled differently put one app
+        // in both halves of the dock: the pin emitted a chip from its entry, the
+        // window emitted another from its class, and neither half recognised
+        // the other. Keying both ends by `appKey` makes the question identical
+        // wherever it is asked.
+        //
+        // A class that resolves to no entry still gets a group, filed under its
+        // own key — that is what lets an unresolvable class be recognised as a
+        // pinned app instead of becoming a duplicate of it.
         var classEntry = {};
-        var entryKeys = {};
+        var classesByApp = {};
         for (var o = 0; o < order.length; o++) {
             var k = order[o];
             var e = root.entryFor(k);
             classEntry[k] = e;
-            var ek = e && e.id ? e.id.toLowerCase() : "";
-            if (ek) {
-                if (!entryKeys[ek]) entryKeys[ek] = [];
-                entryKeys[ek].push(k);
-            }
+            var ak = root.appKey(e ? e.id : k);
+            if (!ak) continue;
+            if (!classesByApp[ak]) classesByApp[ak] = [];
+            classesByApp[ak].push(k);
         }
 
-        function windowsFor(entryId) {
-            var keys = entryKeys[entryId] || [entryId];
+        function windowsForApp(ak) {
+            var keys = classesByApp[ak] || [];
             var acc = [];
             for (var n = 0; n < keys.length; n++)
                 if (byClass[keys[n]]) acc = acc.concat(byClass[keys[n]]);
@@ -548,12 +881,17 @@ Item {
             var pk = (pe.id || "").toLowerCase();
             if (pinnedKeys.indexOf(pk) >= 0) continue;
             pinnedKeys.push(pk);
-            var ws = windowsFor(pk);
+            // Its windows come from the app-keyed map, so a pinned app whose
+            // window class is spelled differently from its entry id still reports
+            // itself as running — which it did not before, so the pinned chip sat
+            // there looking closed while a duplicate chip claimed it was open.
+            var ws = windowsForApp(root.appKey(pe.id));
             out.push({
                 entry: pe,
                 cls: pk,
                 name: pe.name,
                 pinned: true,
+                pinIndex: p,
                 windows: ws,
                 running: ws.length > 0,
                 active: root.anyActive(ws)
@@ -564,10 +902,14 @@ Item {
         for (var r = 0; r < order.length; r++) {
             var key = order[r];
             var e2 = classEntry[key];
+            // Asked of the APP, before the entry is used for anything, and
+            // whether or not it resolved: this is the line that keeps one app
+            // out of the running half when a pin already owns it. Passing the
+            // raw class when there is no entry is deliberate — an unresolvable
+            // class is still a class the pin may own.
+            if (root.isPinnedApp(e2 ? e2.id : key)) continue;
             var w = byClass[key];
             if (e2) {
-                var ek2 = (e2.id || "").toLowerCase();
-                if (pinnedKeys.indexOf(ek2) >= 0) continue;
                 running.push({
                     entry: e2,
                     cls: key,
@@ -576,7 +918,7 @@ Item {
                     windows: w,
                     running: true,
                     active: root.anyActive(w),
-                    wsSort: root.minWs(w),
+                    ordSort: DockState.ordinalOf(key),
                     idx: r
                 });
             } else {
@@ -589,16 +931,19 @@ Item {
                     windows: w,
                     running: true,
                     active: root.anyActive(w),
-                    wsSort: root.minWs(w),
+                    ordSort: DockState.ordinalOf(key),
                     idx: r
                 });
             }
         }
 
-        // Running apps line up by workspace: windows on workspace 1 come first,
-        // mirroring Finder's shelf order. Ties keep first-seen order.
+        // Running apps hold a STABLE session order: the sequence in which they
+        // were first seen, kept by DockState for the life of the session. This
+        // used to be sorted by lowest workspace, which made the whole shelf
+        // reshuffle every time a window crossed a workspace — the dock now
+        // reflects what you opened, not where the window happens to sit.
         running.sort(function(a, b) {
-            if (a.wsSort !== b.wsSort) return a.wsSort - b.wsSort;
+            if (a.ordSort !== b.ordSort) return a.ordSort - b.ordSort;
             return a.idx - b.idx;
         });
 
@@ -700,7 +1045,9 @@ Item {
     Rectangle {
         id: slab
         radius: Math.min(20 * s, height / 2)
-        width: chips.implicitWidth + 20 * s
+        // The gear sits at the right end, so the slab grows by its slot and the
+        // app chips centre in what is left.
+        width: chips.implicitWidth + gearSlot.width + 20 * s
         height: root.dockH
         anchors.horizontalCenter: parent.horizontalCenter
         gradient: Gradient {
@@ -732,6 +1079,19 @@ Item {
         }
     }
 
+    /**
+     * The app chips, centred in the slab minus the gear slot. Before the gear
+     * existed they centred on the slab; centring them on the slab still would
+     * shove every icon left by half the gear for no reason, so the wrap gives
+     * them the space they actually have.
+     */
+    Item {
+        id: chipsWrap
+        anchors.left: parent.left
+        anchors.right: gearSlot.left
+        anchors.verticalCenter: parent.verticalCenter
+        height: parent.height
+
     Row {
         id: chips
         anchors.horizontalCenter: parent.horizontalCenter
@@ -747,6 +1107,17 @@ Item {
                 required property int index
                 readonly property bool divider: !!chip.modelData.divider
                 readonly property bool hover: area.containsMouse || panel.containsMouse
+                /** Pinned chips are the reorderable set; the divider and the
+                 *  running shelf are not. */
+                readonly property bool draggable: !chip.divider && chip.modelData.pinIndex >= 0
+                readonly property bool lifted: root.dragActive && chip.draggable && chip.index === root.dragFrom
+                /** The insertion caret sits between the origin and the target,
+                 *  on whichever edge faces the origin, so it always reads as
+                 *  "the gap you'll drop into". */
+                readonly property bool dropBefore: root.dragActive && chip.draggable
+                    && chip.index === root.dragTo && root.dragTo > root.dragFrom
+                readonly property bool dropAfter: root.dragActive && chip.draggable
+                    && chip.index === root.dragTo && root.dragTo < root.dragFrom
                 width: chip.divider ? 6 * s : root.chipW
                 height: root.dockH
 
@@ -758,6 +1129,18 @@ Item {
                     color: Qt.alpha(root.dockHair, 0.7)
                 }
 
+                // Drop caret for the reorder in flight.
+                Rectangle {
+                    visible: chip.dropBefore || chip.dropAfter
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: chip.dropBefore ? parent.left : undefined
+                    anchors.right: chip.dropAfter ? parent.right : undefined
+                    width: 2 * s
+                    height: parent.height - 22 * s
+                    radius: width / 2
+                    color: root.dockActive
+                }
+
                 /**
                  * macOS-style hover: no backdrop box — the icon itself grows
                  * up out of its base (scale origin at the icon's bottom, so it
@@ -767,6 +1150,7 @@ Item {
                  * has room to grow proportionally bigger.
                  */
                 Image {
+                    id: chipIcon
                     visible: !chip.divider
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.top: parent.top
@@ -787,8 +1171,12 @@ Item {
                     /* Magnify up to but never past the dock's top edge: the
                      * icon base sits 36*s (titled) / 44*s (minimal) from the
                      * chip top, so a 1.27 / 1.32 scale still clears the
-                     * hairline by ~1.5*s — it never looks like it escapes. */
-                    scale: chip.hover ? (root.titled ? 1.27 : 1.32) : 1
+                     * hairline by ~1.5*s — it never looks like it escapes.
+                     * A chip being dragged lifts on its own smaller swell, so
+                     * it reads as picked up even with the pointer between
+                     * chips and `hover` gone false. */
+                    scale: chip.lifted ? (root.titled ? 1.16 : 1.2)
+                        : chip.hover ? (root.titled ? 1.27 : 1.32) : 1
                     Behavior on scale { NumberAnimation { duration: Motion.fast } }
                     Behavior on opacity { NumberAnimation { duration: Motion.fast } }
                 }
@@ -796,8 +1184,14 @@ Item {
                 Text {
                     visible: !chip.divider && root.titled
                     anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 20 * s
+                    /* Hangs off the icon's base, not the dock's floor. The title
+                     * used to be bottom-anchored at 20*s, which put its top at
+                     * ~35*s in a 68*s chip whose icon already ends at 36*s — so
+                     * in full mode the first line of every label touched the
+                     * icon. Measuring from the icon makes the gap explicit and
+                     * independent of font metrics. */
+                    anchors.top: chipIcon.bottom
+                    anchors.topMargin: 4 * s
                     width: parent.width - 6 * s
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
@@ -831,8 +1225,40 @@ Item {
                     visible: !chip.divider
                     hoverEnabled: true
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
-                    cursorShape: Qt.PointingHandCursor
+                    /* An open hand on the chips that can be dragged is the
+                     * whole affordance — the dock never takes keyboard focus,
+                     * so the cursor is the only upfront hint. */
+                    cursorShape: chip.lifted ? Qt.ClosedHandCursor
+                        : chip.draggable ? Qt.OpenHandCursor : Qt.PointingHandCursor
+                    onPressed: (mouse) => {
+                        if (mouse.button === Qt.LeftButton)
+                            root.beginDrag(chip.draggable ? chip.index : -1, mouse);
+                    }
+                    onPositionChanged: (mouse) => {
+                        // The grab stays with this MouseArea for the whole press
+                        // even as the pointer leaves the chip, so the drag
+                        // tracks by run slot and never by hit-testing.
+                        if (root.dragFrom === chip.index)
+                            root.trackDrag(chip, mouse);
+                    }
+                    onReleased: (mouse) => {
+                        // Any release on the grabbed chip ends the drag, not
+                        // just a left one, so a second-button release cannot
+                        // strand the drop caret. endDrag only commits when the
+                        // press actually became a drag, so a right-click alone
+                        // (which never arms one) still falls through to
+                        // onClicked and pins/unpins as before.
+                        if (root.dragFrom === chip.index)
+                            root.endDrag();
+                    }
                     onClicked: (mouse) => {
+                        // A drag that ended here must not also launch or focus
+                        // the chip; endDrag deliberately left dragMoved set for
+                        // exactly this check, and it is consumed here.
+                        if (root.dragMoved) {
+                            root.dragMoved = false;
+                            return;
+                        }
                         if (mouse.button === Qt.RightButton)
                             root.togglePin(root.items[index]);
                         else
@@ -1037,4 +1463,104 @@ Item {
             }
         }
     }
+    }
+
+    /**
+     * The dock's settings trigger: a gear at the right end of the bar, behind a
+     * divider so it plainly is not one of the app chips.
+     *
+     * It is a fixed slot rather than another entry in the chip row, on purpose.
+     * The row's indices are run slots — the geometry the drag reorder is built
+     * on — so a gear in the row would either be draggable or would shift every
+     * slot after it. Out here it can never be pinned, unpinned, dragged,
+     * launched, or counted in the pin order the picker shows.
+     */
+    Item {
+        id: gearSlot
+        anchors.right: parent.right
+        anchors.rightMargin: 10 * s
+        anchors.verticalCenter: parent.verticalCenter
+        width: root.dockH
+        height: root.dockH
+        readonly property bool hover: gearArea.containsMouse
+
+        /** Divider, so the gear reads as chrome rather than another app. */
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.right: parent.left
+            anchors.rightMargin: 5 * s
+            width: 1
+            height: 24 * s
+            color: root.dockBorder
+        }
+
+        GlyphIcon {
+            id: gearIcon
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            /* Centred on the CHIPS' icon line, not on the slot. A chip's icon is
+             * 27*s tall at 9*s from the top, so its centre is 22.5*s; the cog is
+             * 19*s, which puts its top at 13*s. Centring it in the whole slot
+             * instead would have floated it up near the top edge, and centring it
+             * in the band above the caption would do the same — the caption sits
+             * at 40*s, so that band is not the icon's band. */
+            anchors.topMargin: root.titled
+                ? 13 * s
+                : (parent.height - 19 * s) / 2
+            width: 19 * s
+            height: 19 * s
+            name: "cog"
+            stroke: 1.8
+            color: root.settingsOpen ? root.dockAccent
+                : (gearSlot.hover ? root.dockCream : root.dockCopy)
+            Behavior on color { ColorAnimation { duration: Motion.fast } }
+        }
+
+        /**
+         * The gear's caption, matching the app chips'. Hidden in minimal mode,
+         * where every other chip is also captionless — a lone "Settings" under
+         * the cog while the apps beside it have no names would look like the
+         * dock's only pinnable item.
+         */
+        Text {
+            visible: root.titled
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 40 * s
+            width: parent.width - 6 * s
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+            maximumLineCount: 1
+            font.pixelSize: 10 * s
+            font.weight: Font.DemiBold
+            color: root.settingsOpen ? root.dockAccent : root.dockCopy
+            opacity: gearSlot.hover ? 1 : 0.85
+            Behavior on opacity { ColorAnimation { duration: Motion.fast } }
+            text: "Settings"
+        }
+
+        MouseArea {
+            id: gearArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.toggleSettings()
+        }
+
+        Tooltip {
+            show: gearSlot.hover
+            s: root.s
+            placement: "above"
+            title: "Dock settings"
+        }
+    }
+
+    /**
+     * The gap between the slab's top edge and the panel's bottom edge, in this
+     * item's own coordinates. The panel is a SIBLING of this bar in the shell
+     * window, not a child, so it needs this to place itself: anchoring it to
+     * the slab would anchor it to the slab's translated position too, and the
+     * panel would leave with the bar whenever the dock slid down.
+     */
+    readonly property real panelGap: 10 * s
 }

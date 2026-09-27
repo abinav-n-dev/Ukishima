@@ -25,10 +25,6 @@ Singleton {
     property alias wallpaperFit: adapter.wallpaperFit
     property alias randomScope: adapter.randomScope
     property alias uiScale: adapter.uiScale
-    //* Resting pill width as a fraction of the shipped 160px; 1 is the shipped look.
-    property alias pillW: adapter.pillW
-    //* Resting pill height as a fraction of the shipped 38px; 1 is the shipped look.
-    property alias pillH: adapter.pillH
     property alias reduceMotion: adapter.reduceMotion
     property alias manualHue: adapter.manualHue
     property alias manualDark: adapter.manualDark
@@ -122,10 +118,6 @@ Singleton {
             //* Super+B random target: "all" repaints every monitor, "cursor" only the one under the pointer.
             property string randomScope: "all"
             property real uiScale: 1
-            //* Resting pill width as a fraction of the shipped 160px; 1 is the shipped look.
-            property real pillW: 1
-            //* Resting pill height as a fraction of the shipped 38px; 1 is the shipped look.
-            property real pillH: 1
             property bool reduceMotion: false
             property int manualHue: 30
             property bool manualDark: true
