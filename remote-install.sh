@@ -17,38 +17,25 @@ warn() { printf '  \033[1;33m%s\033[0m\n' "$*"; }
 
 printf '\nChecking dependencies...\n'
 
+# The dependency list lives in dependencies.json, which the shell's post-update
+# report and DEPENDENCIES.md also read, so an update that adds a requirement
+# cannot leave the installer still describing the old set. This runs after the
+# clone/pull above, so it always reports against the manifest just fetched.
+#
+# The `|| dep_rc=$?` form is deliberate: it keeps `set -e` from killing the
+# installer on a *missing dependency*, which is a reportable state, not a
+# failure of the installer.
 missing=0
-check() {
-  if ! command -v "$1" >/dev/null 2>&1; then
+dep_rc=0
+"$INSTALL_ROOT/scripts/check-deps.sh" --install || dep_rc=$?
+case "$dep_rc" in
+  0) ;;
+  1) missing=1 ;;
+  *)
     missing=1
-    warn "missing: $2 ($1)"
-  fi
-}
-
-check quickshell   "shell runtime"
-check hyprctl      "Hyprland IPC"
-check upower       "battery status"
-check bluetoothctl "bluetooth surface"
-check jq           "JSON parsing"
-check notify-send  "desktop notifications"
-check curl         "weather + wallpaper"
-check python3      "palette generation"
-check magick       "wallpaper thumbs"
-check awww         "wallpaper daemon"
-check awww-daemon  "wallpaper daemon"
-check ffmpeg       "video wallpaper"
-check nmcli        "wifi surface"
-check brightnessctl "backlight control"
-check cava         "music visualiser"
-check cliphist     "clipboard history"
-check wl-paste     "clipboard history"
-check slurp        "screen recording picker"
-check hyprsunset   "night light"
-check xdg-open     "open files"
-
-for b in gpu-screen-recorder mpvpaper matugen ddcutil kdialog zenity power-profiles-daemon; do
-  command -v "$b" >/dev/null 2>&1 || warn "optional: $b"
-done
+    warn "could not read dependencies.json — the full list was not checked"
+    ;;
+esac
 
 IPC_PREFIX="qs -p $INSTALL_ROOT"
 
