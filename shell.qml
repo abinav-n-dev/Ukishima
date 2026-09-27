@@ -305,6 +305,11 @@ ShellRoot {
         }
     }
 
+    // Built-in polkit agent (Polkit.qml): registers on D-Bus and shows a
+    // pill-styled prompt. No external agent while Ukishima runs.
+    Polkit {
+    }
+
     Variants {
         model: Quickshell.screens
 
