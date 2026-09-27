@@ -99,6 +99,8 @@ Singleton {
         property alias lockBlur: adapter.lockBlur
         //* Session lock: "capture" grim-captures the desktop at lock time and blurs it, "wallpaper" uses the live wallpaper, "solid" paints an opaque backdrop.
         property alias lockBackground: adapter.lockBackground
+        //* Which lock script the pill's power menu runs: "hyprlock" (exec hyprlock directly) or "quickshell" (lock-qs.sh — the quickshell lockscreen with hyprlock fallback).
+        property alias lockMethod: adapter.lockMethod
         //* hypridle lock timeout: lock the session after N minutes of inactivity (0 = never).
         property alias idleLockMin: adapter.idleLockMin
         //* hypridle screen-off timeout: turn the monitor off after N minutes (0 = never).
@@ -210,6 +212,8 @@ Singleton {
             property int lockBlur: 64
             //* Session lock: "capture" grim-captures the desktop at lock time and blurs it, "wallpaper" uses the live wallpaper, "solid" paints an opaque backdrop.
             property string lockBackground: "capture"
+            //* Which lock script the pill's power menu runs: "hyprlock" (exec hyprlock directly) or "quickshell" (lock-qs.sh — the quickshell lockscreen with hyprlock fallback).
+            property string lockMethod: "hyprlock"
             //* hypridle lock timeout: lock the session after N minutes of inactivity (0 = never).
             property int idleLockMin: 5
             //* hypridle screen-off timeout: turn the monitor off after N minutes (0 = never).
