@@ -232,6 +232,38 @@ ShellRoot {
         root.peekMon = root.peekMon === mon ? "" : mon;
     }
 
+    /**
+     * True while the named monitor's active workspace reports a fullscreen
+     * client. One definition, because the pill's band and the dock's band both
+     * have to agree with their own bar about when that bar is on screen: the
+     * pill and the dock each retract off their edge, and a band kept reserved
+     * for a bar that has gone is a hole in the desktop.
+     */
+    function fullscreenOn(name) {
+        if (!name)
+            return false;
+        var mons = Hyprland.monitors.values;
+        for (var i = 0; i < mons.length; i++) {
+            if (mons[i].name === name) {
+                var ws = mons[i].activeWorkspace;
+                var o = ws ? ws.lastIpcObject : null;
+                return o ? !!o.hasfullscreen : false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the dock bar is on screen on this monitor: enabled, and not
+     * retracted by a fullscreen client or by game mode. The bar window and the
+     * band that reserves its space both read this, so the two can never disagree
+     * about whether the dock is showing -- which is what left a reserved hole in
+     * the desktop whenever the dock hid while the band did not.
+     */
+    function dockBarShown(mon) {
+        return Flags.dockEnabled && !root.fullscreenOn(mon) && !Flags.gameMode;
+    }
+
     IpcHandler {
         target: "ukishima"
         function mixer(mon: string): void { root.toggleSurface(mon, "mixer"); }
@@ -330,14 +362,26 @@ ShellRoot {
 
             readonly property real gameBarH: 34 * s
 
+            /**
+             * The band is reserved only while the pill is on screen. Game mode
+             * keeps the pill up as a slim bar, so it keeps a slim band; a
+             * fullscreen client slides the pill clean off the top edge, and that
+             * case used to fall through to reservedH and leave a hole in the
+             * desktop with nothing in it, the same defect the dock's band had.
+             * The condition is named once because it drove both exclusiveZone and
+             * implicitHeight, which must agree.
+             */
+            readonly property bool monFullscreen: root.fullscreenOn(modelData.name)
+            readonly property real bandH: monFullscreen ? 0 : (Flags.gameMode ? gameBarH : (Flags.autoHide ? 0 : reservedH))
+
             screen: modelData
             color: "transparent"
             exclusionMode: ExclusionMode.Normal
-            exclusiveZone: Flags.gameMode ? gameBarH : (Flags.autoHide ? 0 : reservedH)
+            exclusiveZone: bandH
             aboveWindows: true
 
             anchors { top: true; left: true; right: true }
-            implicitHeight: Flags.gameMode ? gameBarH : (Flags.autoHide ? 0 : reservedH)
+            implicitHeight: bandH
 
             mask: emptyReserve
             Region { id: emptyReserve }
@@ -367,14 +411,28 @@ ShellRoot {
             readonly property real dockGap: 4 * Flags.topGap * s
             readonly property real reservedH: dockH + dockGap
 
+            /** Whether the dock bar is actually on screen here; mirrors dockWin.suppressed. */
+            readonly property bool barShown: root.dockBarShown(modelData.name)
+
+            /**
+             * The band is reserved only while the bar that fills it is on screen.
+             * This used to key off dockEnabled and auto-hide alone, so the space
+             * survived every state that hides the dock: game mode and a
+             * fullscreen client both retract the bar, and the band stayed, a hole
+             * in the desktop with nothing in it. Keyed to barShown, the same
+             * predicate dockWin uses to decide suppression, so the two cannot
+             * disagree. A once-duplicated condition, now named once.
+             */
+            readonly property real bandH: (barShown && !Flags.dockAutoHide && !DockState.empty) ? reservedH : 0
+
             screen: modelData
             color: "transparent"
             exclusionMode: ExclusionMode.Normal
-            exclusiveZone: (Flags.dockEnabled && !Flags.dockAutoHide && !DockState.empty) ? reservedH : 0
+            exclusiveZone: bandH
             aboveWindows: true
 
             anchors { bottom: true; left: true; right: true }
-            implicitHeight: (Flags.dockEnabled && !Flags.dockAutoHide && !DockState.empty) ? reservedH : 0
+            implicitHeight: bandH
 
             mask: emptyDockReserve
             Region { id: emptyDockReserve }
@@ -398,17 +456,7 @@ ShellRoot {
              * client. The pill then retracts off the top edge and the whole
              * layer becomes click-through so fullscreen content owns the screen.
              */
-            readonly property bool monFullscreen: {
-                var mons = Hyprland.monitors.values;
-                for (var i = 0; i < mons.length; i++) {
-                    if (mons[i].name === modelData.name) {
-                        var ws = mons[i].activeWorkspace;
-                        var o = ws ? ws.lastIpcObject : null;
-                        return o ? !!o.hasfullscreen : false;
-                    }
-                }
-                return false;
-            }
+            readonly property bool monFullscreen: root.fullscreenOn(modelData.name)
 
             onMonFullscreenChanged: if (monFullscreen) {
                 if (root.openMon === modelData.name) root.close();
@@ -756,22 +804,13 @@ ShellRoot {
             readonly property bool surfaceOpen: surface.length > 0
 
             /**
-             * True while this monitor's active workspace reports a fullscreen
-             * client; the dock then retracts off the bottom edge.
+             * The dock is off screen here, and retracts off the bottom edge: it
+             * is switched off, or a fullscreen client owns the screen, or game
+             * mode has quieted the desktop. Read from the same predicate the
+             * band that reserves this bar's space uses, so the bar and the space
+             * it occupies can never come apart.
              */
-            readonly property bool monFullscreen: {
-                var mons = Hyprland.monitors.values;
-                for (var i = 0; i < mons.length; i++) {
-                    if (mons[i].name === modelData.name) {
-                        var ws = mons[i].activeWorkspace;
-                        var o = ws ? ws.lastIpcObject : null;
-                        return o ? !!o.hasfullscreen : false;
-                    }
-                }
-                return false;
-            }
-
-            readonly property bool suppressed: !Flags.dockEnabled || monFullscreen || Flags.gameMode
+            readonly property bool suppressed: !root.dockBarShown(modelData.name)
 
             /**
              * The one state where suppression must NOT take the panel with it.
