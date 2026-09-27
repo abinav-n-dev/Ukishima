@@ -97,6 +97,79 @@ Singleton {
         return "";
     }
 
+    /**
+     * Reduce a notification image to something that still resolves after the
+     * notification is gone, or "" if nothing about it will.
+     *
+     * A Notification's `image` is a Quickshell image-provider handle --
+     * image://qsimage/<provider>/<request> -- and the provider owns the pixels.
+     * The handle lives exactly as long as the Notification object does: on
+     * close, Quickshell frees the image and that handle is dead permanently. It
+     * is not a path and nothing can re-derive it.
+     *
+     * That is a trap for the history specifically, because the snapshot is taken
+     * from inside the `closed` handler -- the precise instant the handle dies.
+     * Storing it there produced a permanently broken source. Worse, it took the
+     * early return in iconFor(), so the row never fell back to the themed app
+     * icon: the Image stayed `visible` on a non-empty source, loaded nothing,
+     * and the fallback dot beside it is keyed off `!image.visible`, so the tile
+     * rendered blank. Every re-render of that row logged "unknown handle", and
+     * because clearing filters the history and thereby rebuilds those rows, one
+     * clear re-requested every dead handle at once. Hence it arriving in bursts
+     * on clear.
+     *
+     * So a handle is never persisted. These do resolve on their own later, with
+     * no live object behind them, and are kept: a theme icon name, which
+     * iconFor() turns into a path via Quickshell.iconPath; a file:// URL or
+     * absolute path; and any other absolute URL (http, qrc). Everything else is
+     * dropped, and iconFor() falls through to appIcon / desktopEntry / the app
+     * name, which is the icon the user would have seen regardless.
+     */
+    function durableImage(u) {
+        var s = (u === undefined || u === null) ? "" : String(u);
+        if (s.length === 0)
+            return "";
+        // Case-insensitive: URL schemes are, and the invariant that matters is
+        // that no handle is ever persisted, so it must not depend on the casing
+        // the provider happens to emit. (The icon-name test below stays
+        // case-sensitive to match iconFor(), which reads it the same way.)
+        if (/^image:\/\/qsimage\//i.test(s))
+            return "";
+        if (s.indexOf("image://icon/") === 0)
+            return s;
+        if (s.indexOf("file://") === 0 || s.indexOf("/") === 0)
+            return s;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(s))
+            return s;
+        return "";
+    }
+
+    /**
+     * Blank the dead handles out of history snapshotted before durableImage()
+     * existed, so a session already holding them stops re-requesting on every
+     * rebuild. Called from the server's onCompleted, which `keepOnReload` re-runs
+     * on each reload, so a live shell picks this up on its next reload rather
+     * than needing a restart. A no-op once history is empty or already clean.
+     */
+    function scrubHistory() {
+        var h = root.history;
+        if (!h || h.length === 0)
+            return;
+        var out = [];
+        var changed = false;
+        for (var i = 0; i < h.length; i++) {
+            var d = root.durableImage(h[i].image);
+            if (d === h[i].image) {
+                out.push(h[i]);
+            } else {
+                changed = true;
+                out.push(Object.assign({}, h[i], { image: d }));
+            }
+        }
+        if (changed)
+            root.history = out;
+    }
+
     function dismissEntry(e) {
         if (!e || !e.items) return;
         var d = Object.assign({}, userDismissed);
@@ -222,7 +295,11 @@ Singleton {
                     body: n.body,
                     appIcon: n.appIcon,
                     desktopEntry: n.desktopEntry,
-                    image: n.image,
+                    // Never n.image raw: it is a provider handle that this very
+                    // handler is firing on the close that kills it. See
+                    // durableImage() -- storing it raw left every history row
+                    // pointing at a freed image.
+                    image: root.durableImage(n.image),
                     urgency: n.urgency,
                     ts: root.arrivalMs[n.id] || Date.now(),
                     id: "h" + n.id + "-" + Date.now()
@@ -270,6 +347,7 @@ Singleton {
         imageSupported: true
 
         Component.onCompleted: {
+            root.scrubHistory();
             var l = trackedNotifications.values;
             var a = Object.assign({}, root.arrivalMs);
             for (var i = 0; i < l.length; i++) {
