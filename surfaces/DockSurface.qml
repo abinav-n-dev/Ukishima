@@ -226,11 +226,7 @@ DockPanel {
     // (dockManualHue/dockManualSat/dockManualDark) — a live swatch for the
     // local PaletteHue render in DockBar.
     readonly property color accentColor: Qt.hsla(Flags.dockManualHue / 360, Flags.dockManualSat, Flags.dockManualDark ? 0.5 : 0.62, 1)
-    readonly property string currentHex: {
-        var c = accentColor;
-        function h(x) { return ("0" + Math.round(x * 255).toString(16)).slice(-2); }
-        return ("#" + h(c.r) + h(c.g) + h(c.b)).toUpperCase();
-    }
+    readonly property string currentHex: Theme.hexUpper(accentColor)
 
     // Switching the dock theme only sets the flag; the dock re-resolves its own
     // palette locally (PaletteHue for manual, Dyn for dynamic, static hexes for

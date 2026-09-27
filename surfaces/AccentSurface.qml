@@ -46,9 +46,10 @@ SettingsSurface {
     readonly property color sliderKnob: "#e6e6e6"
     readonly property color sliderKnobRing: Qt.rgba(0, 0, 0, 0.45)
 
+    /* The one hex conversion lives in Theme; see `hexUpper` there for why it is
+     * not a private copy per surface. */
     function rgbHex(c) {
-        function h(x) { return ("0" + Math.round(x * 255).toString(16)).slice(-2); }
-        return ("#" + h(c.r) + h(c.g) + h(c.b)).toUpperCase();
+        return Theme.hexUpper(c);
     }
 
     /** Row caption: custom state, plus the scheme accent when following it. */

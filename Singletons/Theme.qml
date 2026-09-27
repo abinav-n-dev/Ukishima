@@ -75,6 +75,21 @@ Singleton {
     }
 
     /**
+     * The same conversion, uppercased, for the places that show a hex to the
+     * user or write one into a flag: the accent, theme and font-colour editors
+     * all display one and all store it uppercased.
+     *
+     * This lived as a private copy in each of those four surfaces. They were
+     * byte-identical apart from the `toUpperCase`, which is exactly the kind of
+     * duplication that hides a change: a fix to the conversion, or a decision
+     * that it should round differently, had to be found four times and none of
+     * the four would have failed if one were missed.
+     */
+    function hexUpper(c) {
+        return hexOf(c).toUpperCase();
+    }
+
+    /**
      * Bright warm pop shared by the flame glow, charging glyphs, the recording
      * countdown, the unread inbox dot, the calendar's today cell and the held
      * power tile. The dynamic branch uses the wallpaper accent (Dyn.primary):
