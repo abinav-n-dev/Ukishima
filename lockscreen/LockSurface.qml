@@ -130,7 +130,12 @@ Rectangle {
         watchChanges: true
         printErrors: false
         onLoaded: {
-            root.currentWallpaper = text.trim();
+            // text() is a *call* in this Quickshell build. `text.trim()` grabs
+            // the native function object and throws
+            // "Property 'trim' of object function text() ... is not a function",
+            // which left currentWallpaper empty and silently fell back to the
+            // legacy path. Matches sharedFlags.text() above, which works.
+            root.currentWallpaper = text().trim();
             root.reportWallpaper("loaded");
         }
         onFileChanged: reload()
