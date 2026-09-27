@@ -334,8 +334,20 @@ Rectangle {
                 || (root.background === "capture" && grimShot.status !== Image.Ready && !bgShot.hasContent)
             source: "file://" + root.wallpaperSource
             fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: false
+            //* Decode at screen resolution, never at the file's native size.
+            //* A 5842x3286 wallpaper is 19.2 megapixels of RGBA — 77MB of
+            //* texture — decoded asynchronously with no cache, into a surface
+            //* that has to be correct the instant it appears. That is what
+            //* produced the speckled, soft backdrop: the texture was still
+            //* being uploaded when the lock drew. Sizing the source to the
+            //* screen makes it a cheap, synchronous, correct decode.
+            sourceSize.width: root.lockSurface && root.lockSurface.screen
+                ? root.lockSurface.screen.width : 1920
+            sourceSize.height: root.lockSurface && root.lockSurface.screen
+                ? root.lockSurface.screen.height : 1080
+            asynchronous: false
+            cache: true
+            smooth: true
         }
 
         // Dark veil for text contrast — lighter than before so wallpaper
