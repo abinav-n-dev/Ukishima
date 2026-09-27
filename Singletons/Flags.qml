@@ -41,7 +41,6 @@ Singleton {
     property alias textOverride: adapter.textOverride
     property alias uiFont: adapter.uiFont
     property alias pillOpacity: adapter.pillOpacity
-    property alias pillBlur: adapter.pillBlur
     property alias glass: adapter.glass
     //* Text-visibility boost when transparency mode is on: 0 (off) to 1 (strong) — lifts the readability veil behind copy so pale text keeps contrast on bright wallpapers.
     property alias glassText: adapter.glassText
@@ -66,12 +65,17 @@ Singleton {
     property alias recordMic: adapter.recordMic
     property alias recordDesktop: adapter.recordDesktop
     property alias recordClearedBefore: adapter.recordClearedBefore
-    property alias idleLockMin: adapter.idleLockMin
-    property alias idleScreenOffMin: adapter.idleScreenOffMin
-    property alias idleSuspendMin: adapter.idleSuspendMin
     property alias weatherCity: adapter.weatherCity
     property alias musicViz: adapter.musicViz
     property alias gameMode: adapter.gameMode
+    //* Game mode's snapshot slot per flag it disturbs. The first three are
+    //* load-bearing: GameMode.enter() writes them and leave() reads them back, so
+    //* dropping one does not throw -- the desktop just stays quiet after a game
+    //* because the pre-game value was never restored. They look identical to
+    //* gamePrevProfile below, which nothing reads, so a pass that prunes "unused
+    //* flags" is one line away from taking the block with it. Prune per flag, never
+    //* as a group. gamePrevProfile stays as the reserved slot for restoring the
+    //* power profile, which game mode does not yet touch.
     property alias gamePrevDnd: adapter.gamePrevDnd
     property alias gamePrevViz: adapter.gamePrevViz
     property alias gamePrevAwake: adapter.gamePrevAwake
@@ -133,7 +137,6 @@ Singleton {
             property string textOverride: ""
             property string uiFont: ""
             property real pillOpacity: 1
-            property bool pillBlur: false
             //* Transparency mode: translucent tinted slab over the desktop. Off restores the exact legacy flat gradient.
             property bool glass: true
             //* Text-visibility boost when glass is on (0..1): lifts the readability veil behind copy so text keeps contrast on bright wallpapers. Persisted in the settings file like every other flag.
@@ -161,9 +164,6 @@ Singleton {
             property bool recordMic: true
             property bool recordDesktop: true
             property real recordClearedBefore: 0
-            property int idleLockMin: 5
-            property int idleScreenOffMin: 6
-            property int idleSuspendMin: 0
             property string weatherCity: ""
             property bool musicViz: true
             property bool gameMode: false

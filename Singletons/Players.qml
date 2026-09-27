@@ -179,10 +179,6 @@ Singleton {
         return p && p.identity ? p.identity : "";
     }
 
-    function nowPlayingFor(p) {
-        return p && p.trackTitle ? p.trackTitle : "";
-    }
-
     /**
      * The player's own themed app icon, matched off its desktop entry so any
      * source carries its real logo. Matching is the same window-to-entry pass the

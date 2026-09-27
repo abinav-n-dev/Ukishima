@@ -15,7 +15,6 @@ Singleton {
     id: root
 
     readonly property string surface: adapter.surface
-    readonly property string surfaceContainer: adapter.surface_container
     readonly property string surfaceContainerLow: adapter.surface_container_low
     readonly property string surfaceContainerHigh: adapter.surface_container_high
     readonly property string surfaceContainerHighest: adapter.surface_container_highest

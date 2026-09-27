@@ -128,21 +128,6 @@ Singleton {
         root.commit(was === "scheduled" || m === "scheduled");
     }
 
-    function setTemp(t) {
-        Flags.nightLightTemp = root.clampTemp(t);
-        root.commit(Flags.nightLightMode === "scheduled");
-    }
-
-    function setOnMin(v) {
-        Flags.nightLightOnMin = v;
-        root.commit(Flags.nightLightMode === "scheduled");
-    }
-
-    function setOffMin(v) {
-        Flags.nightLightOffMin = v;
-        root.commit(Flags.nightLightMode === "scheduled");
-    }
-
     SystemClock {
         id: clock
         precision: SystemClock.Minutes

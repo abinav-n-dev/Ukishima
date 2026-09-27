@@ -81,21 +81,6 @@ Singleton {
         root.profile = p;
     }
 
-    /** Same performance → balanced → power-saver → performance cycle as
-     *  powerprofile-toggle.sh, for a keybind or a single-click chip. */
-    function cycleProfile() {
-        if (root.performance)
-            root.setProfile(PowerProfile.Balanced);
-        else if (root.powerSaver)
-            root.setProfile(root.hasPerformance ? PowerProfile.Performance : PowerProfile.Balanced);
-        else
-            root.setProfile(PowerProfile.PowerSaver);
-    }
-
-    function togglePowerSaver() {
-        root.setProfile(root.powerSaver ? PowerProfile.Balanced : PowerProfile.PowerSaver);
-    }
-
     /** power-profiles-daemon reachability, probed once at startup and again
      *  after an in-surface enable. "active" is the only usable state; "masked"
      *  / "inactive" mean the unit exists but won't start; "missing" means the
@@ -137,7 +122,6 @@ Singleton {
 
     property string batteryDir: ""
     property real _energyFullDesign: -1
-    readonly property string batteryRoot: "/sys/class/power_supply"
 
     function fmt(sec) {
         var s = Math.max(0, Math.round(sec));

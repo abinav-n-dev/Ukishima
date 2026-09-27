@@ -76,7 +76,6 @@ PillSurface {
     readonly property bool loopOk: hasPlayer && root.player.loopSupported && root.player.canControl
     readonly property bool loopNone: !hasPlayer || !root.loopOk || root.player.loopState === MprisLoopState.None
     readonly property bool loopTrack: hasPlayer && root.loopOk && root.player.loopState === MprisLoopState.Track
-    readonly property bool loopPlaylist: hasPlayer && root.loopOk && root.player.loopState === MprisLoopState.Playlist
     function nextLoop() {
         if (!root.player)
             return;
