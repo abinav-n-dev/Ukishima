@@ -23,6 +23,7 @@ SettingsSurface {
         { item: timeRow, kind: "seg", vals: [false, true], get: function () { return Flags.time12h; }, set: function (v) { Flags.time12h = v; } },
         { item: secRow, kind: "toggle", get: function () { return Flags.clockSeconds; }, set: function (v) { Flags.clockSeconds = v; } },
         { item: glyphRow, kind: "toggle", get: function () { return Flags.showGlyphs; }, set: function (v) { Flags.showGlyphs = v; } },
+        { item: clockIconRow, kind: "toggle", get: function () { return Flags.clockIcon; }, set: function (v) { Flags.clockIcon = v; } },
         { item: vizRow, kind: "toggle", get: function () { return Flags.musicViz; }, set: function (v) { Flags.musicViz = v; } }
     ]
 
@@ -107,6 +108,21 @@ SettingsSurface {
                 s: root.s
                 on: Flags.showGlyphs
                 onToggled: Flags.showGlyphs = !Flags.showGlyphs
+            }
+        }
+
+        SettingsRow {
+            id: clockIconRow
+            surface: root
+            name: "Clock icon"
+            icon: "clock"
+            sub: "Icon left of the time · with Japanese glyphs off"
+            enabled: !Flags.showGlyphs
+
+            LinkToggle {
+                s: root.s
+                on: Flags.clockIcon
+                onToggled: Flags.clockIcon = !Flags.clockIcon
             }
         }
 

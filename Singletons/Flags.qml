@@ -20,6 +20,8 @@ Singleton {
     property alias mainDisplay: adapter.mainDisplay
     property alias expandTo: adapter.expandTo
     property alias showGlyphs: adapter.showGlyphs
+    //* Resting pill's clock icon, left of the time. Only drawn when showGlyphs is off — the two are alternatives in the same slot, 時 or a clock face.
+    property alias clockIcon: adapter.clockIcon
     property alias paletteMode: adapter.paletteMode
     property alias wallpaperDir: adapter.wallpaperDir
     property alias wallpaperFit: adapter.wallpaperFit
@@ -124,6 +126,8 @@ Singleton {
             //* What the media card's Expand control opens: "media" keeps the surface as the main screen, "pill" swaps to the expanded pill. With auto-hide off, "media" also makes hovering the resting pill grow into the player.
             property string expandTo: "pill"
             property bool showGlyphs: true
+            //* Resting pill's clock icon, left of the time. Only drawn when showGlyphs is off — the two are alternatives in the same slot, 時 or a clock face.
+            property bool clockIcon: true
             property string paletteMode: "static"
             //* Explicit wallpaper folder override. Empty means autodetect: the dir wallpaper.sh last resolved (ukishima-wallpaper-dir state file), then ~/Pictures/Wallpapers. Lives in user state so an in-app update never clobbers a custom folder.
             property string wallpaperDir: ""

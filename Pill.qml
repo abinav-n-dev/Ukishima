@@ -2004,7 +2004,11 @@ Item {
 
                 GlyphIcon {
                     anchors.centerIn: parent
-                    opacity: (!Flags.showGlyphs && !restKanji.barsOn) ? 1 : 0
+                    // 時 and the clock face are alternatives in this slot: the
+                    // glyph when showGlyphs is on, the icon when it is off and
+                    // clockIcon allows it, neither when both are off.
+                    opacity: (!Flags.showGlyphs && Flags.clockIcon && !restKanji.barsOn) ? 1 : 0
+                    visible: opacity > 0
                     width: 17 * pill.s
                     height: 17 * pill.s
                     name: "clock"
