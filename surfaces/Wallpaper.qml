@@ -1286,6 +1286,10 @@ PillSurface {
             readonly property real off: gridIndex - root.pos
             readonly property real ao: Math.abs(off)
             readonly property bool focused: !dead && gridIndex === root.focusIndex
+
+            /** The wallpaper wallpaper.sh last applied, per the shared state file. */
+            readonly property bool isCurrent: !dead && modelData.path !== undefined
+                && modelData.path !== "" && modelData.path === Walls.current
             readonly property real bright: root.slotLerp(root.slotBright, ao)
             readonly property real sat: root.slotLerp(root.slotSat, ao)
             readonly property real corner: (8 + 2 * Math.max(0, 1 - ao)) * root.s
@@ -1330,6 +1334,7 @@ PillSurface {
                     shadowVerticalOffset: 4 * root.s
                 }
 
+
                 Image {
                     id: thumbImage
                     anchors.fill: parent
@@ -1365,6 +1370,32 @@ PillSurface {
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: false
+                }
+
+                /**
+                 * Marks the wallpaper actually on screen. Walls.current is the
+                 * contents of the ukishima-wallpaper state file — the same file
+                 * wallpaper.sh rewrites on every apply, and the same one the
+                 * lockscreen reads — so this dot and the lock screen can never
+                 * disagree about which wallpaper is current. Same 4px dot the
+                 * dock uses for a running app.
+                 *
+                 * Top-right, not the dock's bottom-centre: the focused tile
+                 * already puts its resolution pill at bottom-centre with the
+                 * same 6px margin, and that Text is declared later, so a dot
+                 * there is painted over and never seen. Top-left belongs to the
+                 * motion badge.
+                 */
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: 6 * root.s
+                    width: 4 * root.s
+                    height: width
+                    radius: width / 2
+                    color: Theme.verm
+                    visible: tile.isCurrent
+                    opacity: tile.ao <= 4 ? 1 : Math.max(0, 4 - tile.ao)
                 }
 
                 Loader {
