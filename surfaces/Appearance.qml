@@ -25,7 +25,6 @@ SettingsSurface {
         { item: appearTile, kind: "nav", surface: "appcat" },
         { item: fontTile, kind: "nav", surface: "fontpicker" },
         { item: ifaceTile, kind: "nav", surface: "interface" },
-        { item: dockTile, kind: "nav", surface: "dock" },
         { item: lockTile, kind: "nav", surface: "locksettings" },
         { item: updateTile, kind: "nav", surface: "update" }
     ]
@@ -106,22 +105,6 @@ SettingsSurface {
                 height: 16 * root.s
                 name: "chevron-right"
                 color: root.focusRowItem === ifaceTile ? Theme.cream : Theme.iconDim
-                stroke: 1.9
-            }
-        }
-
-        SettingsRow {
-            id: dockTile
-            surface: root
-            glyph: "泊"
-            name: "Dock"
-            sub: "Bottom dock, theme, glass"
-
-            GlyphIcon {
-                width: 16 * root.s
-                height: 16 * root.s
-                name: "chevron-right"
-                color: root.focusRowItem === dockTile ? Theme.cream : Theme.iconDim
                 stroke: 1.9
             }
         }
