@@ -44,9 +44,14 @@ Item {
     /**
      * Reveal collaboration with the shell window: `hovered` is fed by a
      * window-level HoverHandler (pointer events only exist inside the input
-     * mask, so "hovered" means "over the revealed strip or the bar"), and
+     * mask, so "hovered" means "over whatever the dock currently claims"), and
      * `revealSession` is latched while the pointer is over the dock and
      * released on a grace delay after it leaves, exactly like the pill's.
+     *
+     * While the settings panel is open the mask is the panel and the bar
+     * together, so this same flag reads as "over the panel or the bar" and the
+     * panel's click-away is a second consumer of it rather than a parallel
+     * watch. See `revealTimer` below.
      */
     property bool hovered: false
     property bool revealSession: false
@@ -465,10 +470,53 @@ Item {
         }
     }
 
+    onSuppressedChanged: {
+        /* The window's hover feed pauses while suppressed — it stays on only so
+         * the open panel keeps a dismissal signal — so nothing may be left
+         * latched when that happens. A `revealSession` still true at this point
+         * keeps the bar out after the dock comes back, because auto-hide only
+         * releases it on noticing the pointer leave, and by then there is no
+         * feed left to notice with. */
+        if (root.suppressed) {
+            root.hovered = false;
+            root.revealSession = false;
+        }
+    }
+
+    /**
+     * The one place that learns the pointer has left, and the one place the
+     * settings panel closes because of it.
+     *
+     * The panel's click-away hangs off this timer deliberately, so the bar and
+     * the panel cannot disagree: the bar cannot retract while its own panel is
+     * open, and the panel cannot outlive the pointer by a different amount of
+     * time than the bar does. It used to have an outline drawn just outside the
+     * block, which was a second mechanism watching the same event, in the one
+     * place where a second opinion is least welcome.
+     *
+     * The grace period is the reason to route through here at all. A pointer
+     * crossing the block on its way to something behind it should not take the
+     * panel with it on the way past, and 350ms is the delay the bar has always
+     * applied to that same judgement.
+     *
+     * No open-time guard is needed, which is worth stating because one used to
+     * be here. `openSettings` has a single call site — the gear's `onClicked` —
+     * and the gear is inside `dockRegion`, which is in the input mask both
+     * before and after the panel opens. So the pointer is on the bar when the
+     * panel appears, `hovered` is already true, and this cannot fire on the
+     * way in. That is a property of the geometry, so if a second way to open
+     * the panel is ever added it has to be re-checked rather than assumed.
+     */
     Timer {
         id: revealTimer
         interval: 350
-        onTriggered: { if (!root.hovered) root.revealSession = false; }
+        onTriggered: {
+            if (root.hovered)
+                return;
+            root.revealSession = false;
+            if (root.settingsOpen)
+                root.closeSettings();
+        }
     }
 
     Timer {

@@ -51,14 +51,16 @@ Item {
      * This used to carry a `pointerInside` hover watch, and the host asked it
      * whether the pointer was still over the panel before closing. That is gone,
      * and the reason is worth keeping in mind before putting anything like it
-     * back: the panel cannot know when the pointer leaves, because leaving is
-     * the absence of an event rather than an event, and the flag could be frozen
-     * at "inside" forever. A frozen value there was not neutral — it was a veto
-     * that silently made dismissal stop working.
+     * back: the panel is opened from the gear, which is on the BAR, so on the
+     * ordinary path the pointer never crosses the panel at all. A host that
+     * requires "the pointer was over the panel" before it will dismiss therefore
+     * vetoes the exact case it appears to be guarding, and fires only when the
+     * pointer happens to have travelled through the panel on its way elsewhere.
      *
-     * The host dismisses on a sentinel outline just outside the panel instead,
-     * which is a motion event the compositor is obliged to deliver. See
-     * `dismissBand` in shell.qml.
+     * The host decides instead, from the block it already measures: the panel
+     * and the bar are one input region, `hovered` reads as "over either", and
+     * the bar's existing leave-grace closes this. See `dismissBase` in
+     * shell.qml and `revealTimer` in DockBar.
      */
 
     /*
