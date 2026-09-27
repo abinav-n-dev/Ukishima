@@ -24,6 +24,13 @@ Rectangle {
     readonly property string lockShot: "/tmp/ukishima-lock.png"
     readonly property string stateWallpaper: (Quickshell.env("XDG_STATE_HOME") || (home + "/.local/state")) + "/ukishima-wallpaper"
     readonly property string wallpaperFallback: home + "/Pictures/Wallpapers/current_wallpaper.jpg"
+    //* The wallpaper the shell is actually showing, read from the same state
+    //* file Singletons/Walls.qml writes (ukishima-wallpaper holds the current
+    //* wallpaper's path, one line). The lockscreen runs as its own process and
+    //* cannot import Singletons, so it re-reads the file itself. Falls back to
+    //* the legacy current_wallpaper.jpg only when that state file is missing.
+    property string currentWallpaper: ""
+    readonly property string wallpaperSource: currentWallpaper.length > 0 ? currentWallpaper : wallpaperFallback
 
     // Shuffled dot-morph queue, like polkit's shapeQueue: each typed char
     // pops in as a random shape then settles into a dot.
@@ -100,6 +107,18 @@ Rectangle {
             root.blurMax = 64;
             root.background = "capture";
         }
+    }
+
+    FileView {
+        id: wallpaperState
+
+        path: root.stateWallpaper
+        blockLoading: true
+        watchChanges: true
+        printErrors: false
+        onLoaded: root.currentWallpaper = text.trim()
+        onFileChanged: reload()
+        onLoadFailed: root.currentWallpaper = ""
     }
 
     color: "#0b0d0c"
@@ -288,7 +307,7 @@ Rectangle {
             anchors.fill: parent
             visible: root.background === "wallpaper"
                 || (root.background === "capture" && grimShot.status !== Image.Ready && !bgShot.hasContent)
-            source: "file://" + root.wallpaperFallback
+            source: "file://" + root.wallpaperSource
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: false
