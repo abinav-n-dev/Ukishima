@@ -20,6 +20,8 @@ Singleton {
     property alias mainDisplay: adapter.mainDisplay
     property alias expandTo: adapter.expandTo
     property alias showGlyphs: adapter.showGlyphs
+    //* Resting pill's clock icon, left of the time. Only drawn when showGlyphs is off — the two are alternatives in the same slot, \u6642 or a clock face.
+    property alias clockIcon: adapter.clockIcon
     property alias paletteMode: adapter.paletteMode
     property alias wallpaperDir: adapter.wallpaperDir
     property alias wallpaperFit: adapter.wallpaperFit
@@ -86,6 +88,23 @@ Singleton {
     property alias nightLightOffMin: adapter.nightLightOffMin
     property alias memorySaver: adapter.memorySaver
     property alias unloadSec: adapter.unloadSec
+
+        //* Session lock: show the avatar above the username on lockscreen/LockSurface.qml.
+        property alias lockShowAvatar: adapter.lockShowAvatar
+        //* Session lock: show the wifi indicator on lockscreen/LockSurface.qml.
+        property alias lockShowWifi: adapter.lockShowWifi
+        //* Session lock: show the battery indicator on lockscreen/LockSurface.qml.
+        property alias lockShowBattery: adapter.lockShowBattery
+        //* Session lock: how hard the captured desktop is blurred behind the lock.
+        property alias lockBlur: adapter.lockBlur
+        //* Session lock: "capture" grim-captures the desktop at lock time and blurs it, "wallpaper" uses the live wallpaper, "solid" paints an opaque backdrop.
+        property alias lockBackground: adapter.lockBackground
+        //* hypridle lock timeout: lock the session after N minutes of inactivity (0 = never).
+        property alias idleLockMin: adapter.idleLockMin
+        //* hypridle screen-off timeout: turn the monitor off after N minutes (0 = never).
+        property alias idleScreenOffMin: adapter.idleScreenOffMin
+        //* hypridle suspend timeout: suspend the machine after N minutes (0 = never).
+        property alias idleSuspendMin: adapter.idleSuspendMin
 
     FileView {
         id: file
@@ -179,8 +198,24 @@ Singleton {
             property bool memorySaver: true
             //* Wallpaper-tier idle in seconds when memorySaver is on; the other tiers scale off it.
             property real unloadSec: 30
-        }
+            //* Session lock: show the avatar above the username on lockscreen/LockSurface.qml.
+            property bool lockShowAvatar: true
+            //* Session lock: show the wifi indicator on lockscreen/LockSurface.qml.
+            property bool lockShowWifi: true
+            //* Session lock: show the battery indicator on lockscreen/LockSurface.qml.
+            property bool lockShowBattery: true
+            //* Session lock: how hard the captured desktop is blurred behind the lock.
+            property int lockBlur: 64
+            //* Session lock: "capture" grim-captures the desktop at lock time and blurs it, "wallpaper" uses the live wallpaper, "solid" paints an opaque backdrop.
+            property string lockBackground: "capture"
+            //* hypridle lock timeout: lock the session after N minutes of inactivity (0 = never).
+            property int idleLockMin: 5
+            //* hypridle screen-off timeout: turn the monitor off after N minutes (0 = never).
+            property int idleScreenOffMin: 6
+            //* hypridle suspend timeout: suspend the machine after N minutes (0 = never).
+            property int idleSuspendMin: 0
 
+        }
     }
 
 }
