@@ -32,6 +32,19 @@ Rectangle {
     property string currentWallpaper: ""
     readonly property string wallpaperSource: currentWallpaper.length > 0 ? currentWallpaper : wallpaperFallback
 
+    //* lock.sh redirects the lock's stderr into /tmp/ukishima-lock.log, so one
+    //* console.log per lock says exactly which file the backdrop resolved to and
+    //* whether it came from the state file or the legacy fallback. Without it,
+    //* "the lock shows the wrong wallpaper" is unanswerable from outside the
+    //* session.
+    function reportWallpaper(how) {
+        console.log("[lock] wallpaper " + how + ": mode=" + background
+            + " state=" + stateWallpaper
+            + " current=" + (currentWallpaper || "<empty>")
+            + " using=" + wallpaperSource
+            + " fallbackUsed=" + (currentWallpaper.length === 0));
+    }
+
     // Shuffled dot-morph queue, like polkit's shapeQueue: each typed char
     // pops in as a random shape then settles into a dot.
     readonly property list<int> shapeQueue: {
@@ -116,9 +129,15 @@ Rectangle {
         blockLoading: true
         watchChanges: true
         printErrors: false
-        onLoaded: root.currentWallpaper = text.trim()
+        onLoaded: {
+            root.currentWallpaper = text.trim();
+            root.reportWallpaper("loaded");
+        }
         onFileChanged: reload()
-        onLoadFailed: root.currentWallpaper = ""
+        onLoadFailed: {
+            root.currentWallpaper = "";
+            root.reportWallpaper("load-failed");
+        }
     }
 
     color: "#0b0d0c"
@@ -140,7 +159,10 @@ Rectangle {
     // entrance choreography, Caelestia initAnim style:
     // backdrop settles (fade + zoom + focus pull), clock drifts down,
     // auth cluster rises — staggered so the lock "assembles" smoothly
-    Component.onCompleted: showAnim.start()
+    Component.onCompleted: {
+        showAnim.start();
+        Qt.callLater(() => reportWallpaper("startup"));
+    }
 
     ParallelAnimation {
         id: showAnim
@@ -161,14 +183,12 @@ Rectangle {
             duration: 750
             easing.type: Easing.OutCubic
         }
-        NumberAnimation {
-            target: bgBlur
-            property: "blurMax"
-            from: 64
-            to: 32
-            duration: 750
-            easing.type: Easing.OutCubic
-        }
+        //* No blurMax animation here any more. It used to run 64 -> 32 as part
+        //* of the entrance, which was fine while blurMax was a literal — but it
+        //* is now bound to the user's Blur setting, and an animation assigns
+        //* imperatively, which tears that binding out. Every lock landed on 32
+        //* regardless of what LOCK says. The backdrop fade and zoom carry the
+        //* entrance on their own.
 
         SequentialAnimation {
             PauseAnimation {
