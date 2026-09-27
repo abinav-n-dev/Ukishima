@@ -17,9 +17,8 @@ import QtQuick
  *
  * A `rows` entry pairs a row item with its control kind and the backing getter
  * and setter: `seg` cycles a segmented choice (wrapping), `toggle` flips a
- * boolean, `scrub` bumps a numeric scrub through its `bump(dir)`, `nav` asks
- * the host to open another surface. Hosts route arrow keys through `kbMove`,
- * `kbAdjust` and `kbActivate`; hover and clicks route through
+ * boolean, `nav` asks the host to open another surface. Hosts route arrow keys
+ * through `kbMove`, `kbAdjust` and `kbActivate`; hover and clicks route through
  * `reportRowHover` and `activateRow`, keeping `kbIndex` and the focus in sync.
  */
 QtObject {
@@ -82,8 +81,6 @@ QtObject {
             root.segCycle(r, dir);
         else if (r.kind === "toggle")
             r.set(dir > 0);
-        else if (r.kind === "scrub")
-            r.bump(dir);
     }
 
     function kbActivate() {

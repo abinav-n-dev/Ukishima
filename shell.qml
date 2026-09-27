@@ -925,21 +925,33 @@ ShellRoot {
              * `dockForcedOpen` above exists for: switching the dock off from
              * inside its own settings must not strand the user.
              *
-             * While the panel is open the region is `dismissBox`, which encloses
-             * the panel, the bar and the sentinel outline in one rect. It is a
-             * single rect rather than the two rects it stands in for, which is
-             * what the click floor exists to cover: the dead space this
-             * over-generous shape adds is exactly the space where a click would
-             * otherwise be delivered to this window and hit nothing at all.
+             * While the panel is open the region is `dockDismissRegion`, which is
+             * `dismissBox`: one rect enclosing the panel, the bar and the sentinel
+             * outline. It is a single rect rather than the three it stands in
+             * for, which is what the click floor exists to cover — the dead space
+             * this over-generous shape adds is exactly the space where a click
+             * would be delivered to this window and hit nothing at all.
              *
-             * The outline has to be IN the region or its motion events are never
-             * delivered, and the whole dismissal mechanism is those events.
+             * The outline has to be INSIDE the region, or its motion events are
+             * never delivered and the whole dismissal mechanism — which is those
+             * events and nothing else — never fires.
+             *
+             * The rest of the mask, and what each state needs to keep reachable:
+             *
+             *  - Suppressed or empty: nothing, so the screen is entirely free.
+             *  - Auto-hide on: the reveal strip alone while retracted, so the
+             *    pointer can always find the bar again; the strip unioned with
+             *    the pop band once it is up, so the pull-in cannot flicker.
+             *  - Auto-hide off: the bar can never retract, so no reveal strip is
+             *    needed at any point. Naming the pop band alone covers the bar
+             *    plus the space above it — it already contains the bar, whose
+             *    width it spans and whose bottom edge it stops at.
              */
             mask: dock.settingsOpen
                 ? dockDismissRegion
                 : (suppressed || dock.empty ? dockHiddenRegion
                     : (Flags.dockAutoHide ? ((dock.revealSession || dock.hovered) ? dockRevealUnion : dockRevealRegion)
-                        : ((dock.hovered || dock.previewOpen) ? dockLiveUnion : dockRegion)))
+                        : (dock.hovered || dock.previewOpen ? dockPopBand : dockRegion)))
             Region { id: dockHiddenRegion }
 
             /**
@@ -1022,34 +1034,17 @@ ShellRoot {
             }
 
             /**
-             * Mask while the bar is being pulled in from the reveal strip. The
-             * plain dockRegion alone would flicker: the strip is wider than the
-             * empty bar, so a cursor resting on the strip's outer edge would slip
-             * out of the mask mid-slide and re-trigger the reveal. Unioning the
-             * fixed strip keeps the cursor covered for the whole pull-in.
+             * Mask while the bar is up with auto-hide ON, which is the only case
+             * that needs the reveal strip: the bar retracts, so the strip is what
+             * keeps the pointer able to find and re-reveal it.
+             *
+             * The plain dockRegion alone would flicker: the strip is wider than
+             * the empty bar, so a cursor resting on the strip's outer edge would
+             * slip out of the mask mid-slide and re-trigger the reveal. Unioning
+             * the fixed strip keeps the cursor covered for the whole pull-in.
              */
             Region {
                 id: dockRevealUnion
-                x: dockRevealRegion.x
-                y: dockRevealRegion.y
-                width: dockRevealRegion.width
-                height: dockRevealRegion.height
-
-                Region {
-                    x: dockPopBand.x
-                    y: dockPopBand.y
-                    width: dockPopBand.width
-                    height: dockPopBand.height
-                }
-            }
-
-            /**
-             * Mask while the bar is up: the popover band covers the bar and
-             * the space above it, so a multi-window preview takes input and
-             * the cursor can walk up into it and pick a window.
-             */
-            Region {
-                id: dockLiveUnion
                 x: dockRevealRegion.x
                 y: dockRevealRegion.y
                 width: dockRevealRegion.width
