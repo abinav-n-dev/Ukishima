@@ -117,6 +117,21 @@ SettingsSurface {
         }
 
         SettingsRow {
+            id: clockIconRow
+            surface: root
+            name: "Clock icon"
+            icon: "clock"
+            sub: "Icon left of the time · with Japanese glyphs off"
+            enabled: !Flags.showGlyphs
+
+            LinkToggle {
+                s: root.s
+                on: Flags.clockIcon
+                onToggled: Flags.clockIcon = !Flags.clockIcon
+            }
+        }
+
+        SettingsRow {
             id: vizRow
             surface: root
             name: "Music visualizer"

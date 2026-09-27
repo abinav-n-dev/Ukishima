@@ -1958,7 +1958,16 @@ Item {
             spacing: 9 * pill.s
             Item {
                 id: restKanji
-                visible: pill.specialView === "" && Flags.mainDisplay === "minimal"
+                /**
+                 * This slot is shared by the 時 glyph, the clock icon and the
+                 * music waveform — exactly one is drawn at a time. When none of
+                 * them is (glyphs off, clockIcon off, visualiser idle) the item
+                 * is hidden outright, so the Row drops it *and* its spacing.
+                 * Only zeroing the width would leave the Row's 9px gap behind
+                 * and leave the time sitting a few pixels right of centre.
+                 */
+                readonly property bool slotUsed: barsOn || (Flags.showGlyphs ? true : Flags.clockIcon)
+                visible: pill.specialView === "" && Flags.mainDisplay === "minimal" && slotUsed
                 anchors.verticalCenter: parent.verticalCenter
                 width: kanjiFill.implicitWidth
                 height: kanjiFill.implicitHeight
@@ -1991,7 +2000,11 @@ Item {
 
                 GlyphIcon {
                     anchors.centerIn: parent
-                    opacity: (!Flags.showGlyphs && !restKanji.barsOn) ? 1 : 0
+                    // 時 and the clock face are alternatives in this slot: the
+                    // glyph when showGlyphs is on, the icon when it is off and
+                    // clockIcon allows it, neither when both are off.
+                    opacity: (!Flags.showGlyphs && Flags.clockIcon && !restKanji.barsOn) ? 1 : 0
+                    visible: opacity > 0
                     width: 17 * pill.s
                     height: 17 * pill.s
                     name: "clock"
