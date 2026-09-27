@@ -428,12 +428,25 @@ opt_total=0
 # them apart is what the package database is for, and it is a distinction worth
 # making automatically because the wrong one produces advice that cannot work.
 pkg_present_hint() {
-  # $1 = space-separated package names. Empty result = genuinely not installed.
+  # $1 = space-separated package names, $2 = check kind. Empty = genuinely absent.
+  #
+  # The remedy depends on what kind of check failed, and a $PATH hint on a
+  # systemd unit is worse than no hint: it sends someone to edit their PATH
+  # when the real answer is "the daemon is stopped".
   [ -n "$1" ] || return 0
   p=""
   for p in $1; do
     if pkg_installed "$p"; then
-      printf '%s is installed, so the file is probably just not on your $PATH' "$p"
+      case "$2" in
+        bin | bins | anyBin)
+          printf '%s is installed, so the binary is probably just not on your $PATH' "$p" ;;
+        service)
+          printf '%s is installed, so the unit is present but not running — start it rather than reinstalling' "$p" ;;
+        path)
+          printf '%s is installed, but the expected path is absent — usually a package layout other than the one this manifest assumes' "$p" ;;
+        *)
+          printf '%s is installed, so what this checks for is present but not where it looked' "$p" ;;
+      esac
       return 0
     fi
   done
@@ -449,7 +462,7 @@ while IFS="$(printf '\t')" read -r section id why pkgs kind arg nudge; do
   # the absence being real and there is nothing left to disambiguate.
   hint=""
   if [ "$kind" != pkgdb ]; then
-    hint=$(pkg_present_hint "$pkgs")
+    hint=$(pkg_present_hint "$pkgs" "$kind")
     [ -n "$hint" ] && missing_pkg_present=1
   fi
   case "$section" in
