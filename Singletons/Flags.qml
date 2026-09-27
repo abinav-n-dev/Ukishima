@@ -50,6 +50,16 @@ Singleton {
     //* Text-visibility boost when transparency mode is on: 0 (off) to 1 (strong) — lifts the readability veil behind copy so pale text keeps contrast on bright wallpapers.
     property alias glassText: adapter.glassText
     property alias autoHide: adapter.autoHide
+    //* Session lock: show the avatar above the username on lockscreen/LockSurface.qml.
+    property alias lockShowAvatar: adapter.lockShowAvatar
+    //* Session lock: show the wifi indicator on lockscreen/LockSurface.qml.
+    property alias lockShowWifi: adapter.lockShowWifi
+    //* Session lock: show the battery indicator on lockscreen/LockSurface.qml.
+    property alias lockShowBattery: adapter.lockShowBattery
+    //* Session lock: how hard the captured desktop is blurred behind the lock.
+    property alias lockBlur: adapter.lockBlur
+    //* Session lock: "capture" grim-captures the desktop at lock time and blurs it, "wallpaper" uses the live wallpaper, "solid" paints an opaque backdrop.
+    property alias lockBackground: adapter.lockBackground
     //* Bottom dock: macOS-style pinned + running app bar on every monitor.
     property alias dockEnabled: adapter.dockEnabled
     //* Dock hides below the screen edge and slides back up on bottom-edge hover; off keeps it reserved and always visible.
@@ -147,6 +157,16 @@ Singleton {
             //* Text-visibility boost when glass is on (0..1): lifts the readability veil behind copy so text keeps contrast on bright wallpapers. Persisted in the settings file like every other flag.
             property real glassText: 0
             property bool autoHide: true
+            //* Session lock: show the avatar above the username on lockscreen/LockSurface.qml.
+            property bool lockShowAvatar: true
+            //* Session lock: show the wifi indicator on lockscreen/LockSurface.qml.
+            property bool lockShowWifi: true
+            //* Session lock: show the battery indicator on lockscreen/LockSurface.qml.
+            property bool lockShowBattery: true
+            //* Session lock: how hard the captured desktop is blurred behind the lock.
+            property int lockBlur: 64
+            //* Session lock: "capture" grim-captures the desktop at lock time and blurs it, "wallpaper" uses the live wallpaper, "solid" paints an opaque backdrop.
+            property string lockBackground: "capture"
             //* Bottom dock: macOS-style pinned + running app bar on every monitor.
             property bool dockEnabled: true
             //* Dock hides below the screen edge and slides back up on bottom-edge hover; off keeps it reserved and always visible.

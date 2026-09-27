@@ -115,12 +115,13 @@ Item {
     readonly property bool themeOpen: surface === "theme"
     readonly property bool accentOpen: surface === "accent"
     readonly property bool glassOpen: surface === "glass"
+    readonly property bool locksettingsOpen: surface === "locksettings"
     readonly property bool fontColorOpen: surface === "fontcolor"
     readonly property bool interfaceOpen: surface === "interface"
     readonly property bool fontpickerOpen: surface === "fontpicker"
     readonly property bool updateOpen: surface === "update"
     readonly property bool dockOpen: surface === "dock"
-    readonly property bool settingsLike: appearanceOpen || appcatOpen || displayOpen || themeOpen || accentOpen || glassOpen || fontColorOpen || interfaceOpen || fontpickerOpen || updateOpen || dockOpen
+    readonly property bool settingsLike: appearanceOpen || appcatOpen || displayOpen || themeOpen || accentOpen || glassOpen || fontColorOpen || interfaceOpen || fontpickerOpen || updateOpen || dockOpen || locksettingsOpen
     readonly property bool hasMedia: Players.list.length > 0
 
     readonly property var netDevices: (typeof Networking !== "undefined" && Networking && Networking.devices) ? Networking.devices.values : []
@@ -409,6 +410,7 @@ Item {
         fontcolor:  { size: () => Qt.size(settingsW, surfaceItem("fontcolor").implicitHeight + 29 * s), ame: () => surfaceItem("fontcolor") },
         interface:  { size: () => Qt.size(settingsW, surfaceItem("interface").implicitHeight + 29 * s), ame: () => surfaceItem("interface") },
         dock:       { size: () => Qt.size(settingsW, surfaceItem("dock").implicitHeight + 29 * s), ame: () => surfaceItem("dock") },
+        locksettings: { size: () => Qt.size(settingsW, surfaceItem("locksettings").implicitHeight + 29 * s), ame: () => surfaceItem("locksettings") },
         fontpicker: { size: () => Qt.size(fontpickerW, surfaceItem("fontpicker").implicitHeight + 29 * s), ame: () => surfaceItem("fontpicker") },
         update:     { size: () => Qt.size(settingsW, surfaceItem("update").implicitHeight + 29 * s), ame: () => surfaceItem("update") }
     })
@@ -444,6 +446,7 @@ Item {
         fontcolor:  () => ldFontcolor,
         interface:  () => ldInterface,
         dock:       () => ldDock,
+        locksettings: () => ldLocksettings,
         fontpicker: () => ldFontpicker,
         update:     () => ldUpdate
     })
@@ -623,6 +626,8 @@ Item {
             return ldInterface.item;
         if (pill.dockOpen)
             return ldDock.item;
+        if (pill.locksettingsOpen)
+            return ldLocksettings.item;
         if (pill.fontpickerOpen)
             return ldFontpicker.item;
         return null;
@@ -2975,6 +2980,20 @@ sourceComponent: Media {
         sourceComponent: GlassSurface {
             s: pill.s * pill.settingsScale
             open: pill.glassOpen
+            morphCloseness: pill.morphCloseness
+            onRequestClose: pill.requestClose()
+            onRequestSurface: (name) => pill.requestSurface(name)
+        }
+    }
+
+    Loader {
+        id: ldLocksettings
+
+        active: false
+        anchors.fill: parent
+        sourceComponent: LockSettings {
+            s: pill.s * pill.settingsScale
+            open: pill.locksettingsOpen
             morphCloseness: pill.morphCloseness
             onRequestClose: pill.requestClose()
             onRequestSurface: (name) => pill.requestSurface(name)

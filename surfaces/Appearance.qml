@@ -26,6 +26,7 @@ SettingsSurface {
         { item: fontTile, kind: "nav", surface: "fontpicker" },
         { item: ifaceTile, kind: "nav", surface: "interface" },
         { item: dockTile, kind: "nav", surface: "dock" },
+        { item: lockTile, kind: "nav", surface: "locksettings" },
         { item: updateTile, kind: "nav", surface: "update" }
     ]
 
@@ -121,6 +122,22 @@ SettingsSurface {
                 height: 16 * root.s
                 name: "chevron-right"
                 color: root.focusRowItem === dockTile ? Theme.cream : Theme.iconDim
+                stroke: 1.9
+            }
+        }
+
+        SettingsRow {
+            id: lockTile
+            surface: root
+            glyph: "錠"
+            name: "Lock screen"
+            sub: "Session lock background, blur, indicators"
+
+            GlyphIcon {
+                width: 16 * root.s
+                height: 16 * root.s
+                name: "chevron-right"
+                color: root.focusRowItem === lockTile ? Theme.cream : Theme.iconDim
                 stroke: 1.9
             }
         }

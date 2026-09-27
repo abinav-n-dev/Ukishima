@@ -45,6 +45,16 @@ Rectangle {
     //* parses the file and never writes it.
     property bool use12h: false
     property bool batteryShimmerOn: true
+    //* Lock-specific settings, written by the pill's LOCK surface (surfaces/
+    //* LockSettings.qml -> Flags -> flags.json) and read back here. Defaults
+    //* match the Flags adapter so a missing or partial file keeps today's look.
+    property bool showAvatar: true
+    property bool showWifi: true
+    property bool showBattery: true
+    property int blurMax: 64
+    //* "capture" grim-captures the desktop at lock time, "wallpaper" uses the
+    //* live wallpaper, "solid" paints the opaque backdrop colour.
+    property string background: "capture"
 
     function syncSharedFlags() {
         try {
@@ -53,6 +63,21 @@ Rectangle {
                 root.use12h = shared.time12h;
 
             root.batteryShimmerOn = (!shared || shared.batteryShimmer !== false) && (!shared || shared.reduceMotion !== true);
+
+            if (shared && typeof shared.lockShowAvatar === "boolean")
+                root.showAvatar = shared.lockShowAvatar;
+
+            if (shared && typeof shared.lockShowWifi === "boolean")
+                root.showWifi = shared.lockShowWifi;
+
+            if (shared && typeof shared.lockShowBattery === "boolean")
+                root.showBattery = shared.lockShowBattery;
+
+            if (shared && typeof shared.lockBlur === "number")
+                root.blurMax = shared.lockBlur;
+
+            if (shared && ["capture", "wallpaper", "solid"].indexOf(shared.lockBackground) >= 0)
+                root.background = shared.lockBackground;
         } catch (e) {
         }
     }
@@ -69,6 +94,11 @@ Rectangle {
         onLoadFailed: {
             root.use12h = false;
             root.batteryShimmerOn = true;
+            root.showAvatar = true;
+            root.showWifi = true;
+            root.showBattery = true;
+            root.blurMax = 64;
+            root.background = "capture";
         }
     }
 
@@ -220,6 +250,7 @@ Rectangle {
             fillMode: Image.PreserveAspectCrop
             asynchronous: false
             cache: false
+            visible: root.background === "capture"
         }
 
         // 2) Per-screen live capture when grim missing (Caelestia screencopyBackground).
@@ -230,7 +261,7 @@ Rectangle {
             anchors.fill: parent
             captureSource: root.lockSurface ? root.lockSurface.screen : null
             live: false
-            visible: !grimShot.visible && hasContent
+            visible: root.background === "capture" && !grimShot.visible && hasContent
         }
 
         // One blurred layer over whichever source is live.
@@ -239,20 +270,24 @@ Rectangle {
 
             anchors.fill: parent
             source: grimShot.status === Image.Ready ? grimShot : bgShot
-            visible: grimShot.status === Image.Ready || bgShot.hasContent
+            visible: root.background === "capture" && (grimShot.status === Image.Ready || bgShot.hasContent)
             autoPaddingEnabled: false
-            blurEnabled: true
+            blurEnabled: root.blurMax > 0
             blur: 1
-            blurMax: 64
+            blurMax: root.blurMax
             blurMultiplier: 1
             saturation: -0.08
             brightness: -0.06
         }
 
-        // 3) Wallpaper fallback when neither capture is available
+        // 3) Wallpaper — the explicit "wallpaper" choice, and the fallback when
+        //    "capture" is on but no capture came back.
         Image {
+            id: wallpaperShot
+
             anchors.fill: parent
-            visible: grimShot.status !== Image.Ready && !bgShot.hasContent
+            visible: root.background === "wallpaper"
+                || (root.background === "capture" && grimShot.status !== Image.Ready && !bgShot.hasContent)
             source: "file://" + root.wallpaperFallback
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
@@ -374,6 +409,9 @@ Rectangle {
         anchors.topMargin: 26
         anchors.rightMargin: 28
         opacity: 0
+        // The component decides whether it has anything to show; showBattery
+        // (LOCK surface) is the user's master switch on top of that.
+        visible: root.showBattery && present
         shimmerOn: root.batteryShimmerOn
     }
 
@@ -386,6 +424,9 @@ Rectangle {
         anchors.topMargin: 26
         anchors.leftMargin: 28
         opacity: 0
+        // Same arrangement as the battery: its own presence check, gated by the
+        // showWifi flag.
+        visible: root.showWifi && wifiDev !== null
     }
 
     // per-char morphing dot, ported from polkit CharItem:
@@ -527,9 +568,12 @@ Rectangle {
 
         // avatar — ClippingRectangle clips to radius (plain clip ignores it)
         Item {
+            id: avatarBox
+
             Layout.alignment: Qt.AlignHCenter
             width: 64
             height: 64
+            visible: root.showAvatar
 
             ClippingRectangle {
                 anchors.fill: parent
