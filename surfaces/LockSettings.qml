@@ -45,9 +45,11 @@ SettingsSurface {
         return t;
     }
 
-    //* The default is ~/.face, a fairly obscure convention. The stored empty
-    //* string means "use the default", so this is only ever a label.
-    readonly property string avatarPlaceholder: homeDir + "/.face"
+    //* The lock has no default avatar path — it used to be ~/.face, an i3lock
+    //* convention that does not exist on most systems, so the default resolved
+    //* to a blank grey circle. Empty means no image and the lock draws a
+    //* person glyph. This is the resting hint in the field.
+    readonly property string avatarPlaceholder: "no image"
     readonly property string avatarStored: expandPath(Flags.lockAvatarPath)
     //* Does the path we would actually use resolve to a real file? Checked
     //* with a FileView rather than assumed, so a typo shows up here instead of
@@ -64,7 +66,7 @@ SettingsSurface {
     //* cannot say is whether the path resolved and what an empty flag means.
     readonly property string avatarSub: {
         if (Flags.lockAvatarPath.trim() === "")
-            return "empty, so ~/.face is used";
+            return "unset, so the lock shows a person glyph";
         if (!avatarValid)
             return "no such file";
         return "";

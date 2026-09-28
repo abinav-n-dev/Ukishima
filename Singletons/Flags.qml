@@ -101,7 +101,7 @@ Singleton {
         property alias lockBackground: adapter.lockBackground
         //* Which lock script the pill's power menu runs: "hyprlock" (exec hyprlock directly) or "quickshell" (lock-qs.sh — the quickshell lockscreen with hyprlock fallback).
         property alias lockMethod: adapter.lockMethod
-        //* Path to the avatar image shown on the lockscreen. Empty = ~/.face.
+        //* Path to the avatar image shown on the lockscreen. Empty = none, and the lock draws a person glyph.
         property alias lockAvatarPath: adapter.lockAvatarPath
         //* hypridle lock timeout: lock the session after N minutes of inactivity (0 = never).
         property alias idleLockMin: adapter.idleLockMin
@@ -216,7 +216,7 @@ Singleton {
             property string lockBackground: "capture"
             //* Which lock script the pill's power menu runs: "hyprlock" (exec hyprlock directly) or "quickshell" (lock-qs.sh — the quickshell lockscreen with hyprlock fallback).
             property string lockMethod: "hyprlock"
-            //* Path to the avatar image shown on the lockscreen. Empty = ~/.face.
+            //* Path to the avatar image shown on the lockscreen. Empty = none, and the lock draws a person glyph.
             property string lockAvatarPath: ""
             //* hypridle lock timeout: lock the session after N minutes of inactivity (0 = never).
             property int idleLockMin: 5

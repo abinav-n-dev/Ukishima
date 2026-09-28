@@ -18,21 +18,33 @@ Rectangle {
     readonly property string home: Quickshell.env("HOME")
     readonly property string userName: context.userName
     property string avatarPath: ""
+    //* Absolute path to the avatar, or empty for none.
+    //*
+    //* There is deliberately no default. This used to fall back to ~/.face,
+    //* an i3lock convention inherited from the lock PR: i3lock looks for that
+    //* file, almost nothing else does, and it does not exist on most systems —
+    //* so the default resolved to nothing and the avatar was a blank grey
+    //* circle. An unset flag now means no image, and the row draws a person
+    //* glyph instead.
+    //*
     //* A `file://` URL does not expand a leading tilde, so `~/Pictures/me.png`
     //* loads as status=Null and the avatar silently never appears. The
     //* settings surface expands before storing, but flags.json is a plain
-    //* file anyone can edit by hand, so expand here too. Both halves agree on
-    //* the default: an empty flag means ~/.face.
+    //* file anyone can edit by hand, so expand here too.
     readonly property string facePath: {
         const t = avatarPath.trim();
         if (t === "")
-            return home + "/.face";
+            return "";
         if (t === "~")
             return home;
         if (t.indexOf("~/") === 0)
             return home + t.slice(1);
         return t;
     }
+    //* Is there an image to show at all? Both "no path" and "path that will
+    //* not load" want the glyph, so the two are asked apart once here instead
+    //* of the Image and the Label each re-deriving it.
+    readonly property bool avatarWanted: facePath.length > 0
     // grim pre-capture from lock.sh (hyprlock screenshot equivalent),
     // then live ukishima wallpaper, then static fallback
     readonly property string lockShot: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/ukishima/lock-shot.png"
@@ -884,19 +896,33 @@ Rectangle {
                     id: faceImg
 
                     anchors.fill: parent
-                    source: "file://" + root.facePath
+                    //* Guarded on avatarWanted, not just on the URL. With no
+                    //* path the source would be "file://" on its own, which
+                    //* is a directory-shaped URL that fails on its own terms
+                    //* and lands in the same Error branch as a real missing
+                    //* file — two different situations, one accidental code
+                    //* path.
+                    source: root.avatarWanted ? "file://" + root.facePath : ""
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
-                    visible: status !== Image.Error
+                    visible: status === Image.Ready
                 }
 
                 Label {
                     id: fallback
 
                     anchors.centerIn: parent
-                    visible: faceImg.status === Image.Error
-                    text: ""
+                    //* Either there is no image, or the one that was asked for
+                    //* would not load. Both read the same to the user: show
+                    //* the person glyph.
+                    visible: !root.avatarWanted || faceImg.status === Image.Error
+                    //* U+F007, nf-fa-user. This was an empty string, so with
+                    //* no ~/.face to fall back on the avatar was a bare grey
+                    //* disc — the glyph went missing the same way the lock
+                    //* and return glyphs did when LockShape was dropped.
+                    text: ""
                     color: "#d8d8d8"
+                    font.family: "JetBrainsMono NFM"
                     font.pointSize: 20
                 }
 
