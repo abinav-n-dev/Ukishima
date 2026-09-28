@@ -172,20 +172,40 @@ Rectangle {
             event.accepted = true;
             return ;
         }
-        // Modifier combinations belong to the compositor -- leave Ctrl+C,
-        // Alt+Tab, Super and friends alone so nothing feels locked out.
-        if (event.modifiers !== Qt.NoModifier)
-            return ;
+        // Space arrives as Qt.Key_Space with an empty event.text on some
+        // keymaps, so it has to be special-cased before the text test below.
         if (event.key === Qt.Key_Space) {
             context.currentText += " ";
             event.accepted = true;
             return ;
         }
-        // exactly one character, so dead keys (first press yields "") and
-        // stray multi-byte compose sequences cannot both land in the buffer
-        if (event.text && event.text.length === 1) {
-            context.currentText += event.text;
-            event.accepted = true;
+        // Only reject the modifiers that mean "this is a shortcut, not
+        // text". Shift and CapsLock MUST be allowed through: they are how
+        // capitals, "!", "?", "@" and every other shifted symbol are typed,
+        // and the resulting character has already been resolved into
+        // event.text by the keymap. Rejecting them here made any password
+        // containing an uppercase letter or a symbol impossible to enter.
+        if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+            return ;
+        // Reject C0/C1 control characters, which can reach us as text on
+        // odd keymaps and would end up inside the PAM response. Anything
+        // else printable is fair game, including multi-codepoint graphemes
+        // from non-Latin layouts (Devanagari, Hangul, emoji) where a single
+        // key press is legitimately more than one UTF-16 unit.
+        const t = event.text;
+        if (t && t.length > 0) {
+            let clean = true;
+            for (let i = 0; i < t.length; i++) {
+                const c = t.charCodeAt(i);
+                if ((c < 0x20 && c !== 0x09) || (c >= 0x7f && c <= 0x9f)) {
+                    clean = false;
+                    break;
+                }
+            }
+            if (clean) {
+                context.currentText += t;
+                event.accepted = true;
+            }
         }
     }
     // exit fade on successful unlock (shell sets closing, then quits)
