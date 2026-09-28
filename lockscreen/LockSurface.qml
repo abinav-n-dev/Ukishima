@@ -141,9 +141,53 @@ Rectangle {
 
     color: "#0b0d0c"
     focus: true
-    Keys.onEscapePressed: context.currentText = ""
-    Keys.onEnterPressed: context.tryUnlock()
-    Keys.onReturnPressed: context.tryUnlock()
+    //* Password capture goes through the raw keymap, not through a
+    //* TextField. The dots are the entire UI, so all that is needed is
+    //* "append printable characters, delete on backspace" -- and the
+    //* invisible-TextField version of that routed every keystroke through
+    //* the compositor's text-input protocol. Inside a WlSessionLock on
+    //* Hyprland that path drops characters: an 11-character password
+    //* reached PAM as 3, and was rejected as wrong.
+    //*
+    //* Key events reach the focused item through the ordinary keymap, which
+    //* never touches text-input at all. It is also the better fit for a
+    //* lock: no caret to blink, no selection, and nothing for a clipboard
+    //* or a screenshot to catch.
+    Keys.onPressed: (event) => {
+        // never eat keystrokes mid-authentication
+        if (context.unlockInProgress)
+            return ;
+        if (event.key === Qt.Key_Escape) {
+            context.currentText = "";
+            event.accepted = true;
+            return ;
+        }
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            context.tryUnlock();
+            event.accepted = true;
+            return ;
+        }
+        if (event.key === Qt.Key_Backspace) {
+            context.currentText = context.currentText.slice(0, -1);
+            event.accepted = true;
+            return ;
+        }
+        // Modifier combinations belong to the compositor -- leave Ctrl+C,
+        // Alt+Tab, Super and friends alone so nothing feels locked out.
+        if (event.modifiers !== Qt.NoModifier)
+            return ;
+        if (event.key === Qt.Key_Space) {
+            context.currentText += " ";
+            event.accepted = true;
+            return ;
+        }
+        // exactly one character, so dead keys (first press yields "") and
+        // stray multi-byte compose sequences cannot both land in the buffer
+        if (event.text && event.text.length === 1) {
+            context.currentText += event.text;
+            event.accepted = true;
+        }
+    }
     // exit fade on successful unlock (shell sets closing, then quits)
     opacity: context.closing ? 0 : 1
 
@@ -677,7 +721,7 @@ Rectangle {
             }
             radius: 19
             color: context.showFailure ? Qt.rgba(1, 0.42, 0.42, 0.16) : Qt.rgba(1, 1, 1, 0.14)
-            border.color: context.showFailure ? "#ff7a7a" : (passwordBox.activeFocus ? Qt.rgba(1, 1, 1, 0.45) : Qt.rgba(1, 1, 1, 0.18))
+            border.color: context.showFailure ? "#ff7a7a" : (root.activeFocus ? Qt.rgba(1, 1, 1, 0.45) : Qt.rgba(1, 1, 1, 0.18))
             border.width: 1
 
             // polkit failShake: -12 / 10 / -6 / 0 with quad easings
@@ -767,7 +811,14 @@ Rectangle {
 
                 }
 
-                // middle: animated placeholder + morphing dots over invisible capture field
+                // middle: animated placeholder + the password dots.
+                // Nothing in here captures input. There used to be an
+                // invisible TextField filling this cell, which put the
+                // compositor's text-input protocol between the keyboard and
+                // the password -- and it dropped characters inside the
+                // session lock, turning a correct password into a 3
+                // character one that PAM rejected. root's Keys.onPressed
+                // owns input now, so this cell is purely visual.
                 Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -820,47 +871,6 @@ Rectangle {
                         }
 
                         delegate: DotItem {
-                        }
-
-                    }
-
-                    // invisible capture field — dots above render the state.
-                    // opacity 0 (not just transparent text) so the caret
-                    // can never blink through on any style.
-                    TextField {
-                        id: passwordBox
-
-                        anchors.fill: parent
-                        opacity: 0
-                        verticalAlignment: TextInput.AlignVCenter
-                        placeholderText: ""
-                        echoMode: TextInput.Password
-                        inputMethodHints: Qt.ImhSensitiveData
-                        enabled: !context.unlockInProgress
-                        focus: true
-                        cursorVisible: false
-                        Component.onCompleted: forceActiveFocus()
-                        color: "transparent"
-                        selectionColor: "transparent"
-                        selectedTextColor: "transparent"
-                        onTextChanged: {
-                            if (context.currentText !== text)
-                                context.currentText = text;
-
-                        }
-                        onAccepted: context.tryUnlock()
-
-                        Connections {
-                            function onCurrentTextChanged() {
-                                if (passwordBox.text !== root.context.currentText)
-                                    passwordBox.text = root.context.currentText;
-
-                            }
-
-                            target: root.context
-                        }
-
-                        background: Item {
                         }
 
                     }
@@ -964,7 +974,13 @@ Rectangle {
                         clip: true
 
                         Label {
-                            anchors.verticalCenter: authShimmer.verticalCenter
+                            // y: math, not anchors.verticalCenter —
+                            // authShimmer is not a parent or sibling of this
+                            // label, so anchoring across that boundary is
+                            // refused at runtime and logged as
+                            // "Cannot anchor to an item that isn't a parent
+                            // or sibling" on every single lock.
+                            y: (authShimmer.height - implicitHeight) / 2
                             x: (authShimmer.width - implicitWidth) / 2 - sheenMover.x
                             width: implicitWidth
                             height: implicitHeight
@@ -986,7 +1002,8 @@ Rectangle {
                         clip: true
 
                         Label {
-                            anchors.verticalCenter: authShimmer.verticalCenter
+                            // same y: math as the label above
+                            y: (authShimmer.height - implicitHeight) / 2
                             x: (authShimmer.width - implicitWidth) / 2 - sheenMover.x - (sheenMover.width - sheenMover.coreWidth) / 2
                             width: implicitWidth
                             height: implicitHeight
@@ -1037,14 +1054,17 @@ Rectangle {
 
     }
 
-    // keep focus on password (Hyprland unfocuses on wake — Noctalia workaround)
+    // keep focus on the key handler (Hyprland unfocuses on wake — Noctalia
+    // workaround). root is what owns Keys.onPressed now, so this has to
+    // re-focus root; while a child held focus the password would silently
+    // stop accepting keystrokes.
     Timer {
         interval: 300
         running: true
         repeat: true
         onTriggered: {
-            if (!passwordBox.activeFocus && !context.unlockInProgress)
-                passwordBox.forceActiveFocus();
+            if (!root.activeFocus && !context.unlockInProgress)
+                root.forceActiveFocus();
 
         }
     }
@@ -1054,8 +1074,8 @@ Rectangle {
         acceptedButtons: Qt.NoButton
         hoverEnabled: true
         onEntered: {
-            if (!passwordBox.activeFocus && !context.unlockInProgress)
-                passwordBox.forceActiveFocus();
+            if (!root.activeFocus && !context.unlockInProgress)
+                root.forceActiveFocus();
 
         }
     }

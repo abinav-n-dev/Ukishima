@@ -55,7 +55,8 @@ Scope {
         onMessageChanged: {
             root.pamMessage = message;
             root.pamIsError = messageIsError;
-            // surface lockMessage like Caelestia: keep faillock text
+            // keep any PAM-supplied text ("Password: ", and whatever
+            // pam_unix says about a bad account) for the UI
             if (message && message.length > 0)
                 console.log("[lock] pam msg: [" + message + "] err=" + messageIsError);
 
