@@ -7,7 +7,7 @@
 # The flag is read from the ukishima flags.json (the same file the shell
 # writes), so the pill's power menu and any keybind that runs lock.sh stay
 # in sync. An unreadable or missing flag falls back to hyprlock.
-FLAGS_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/ukishima/flags.json"
+FLAGS_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/ukishima/flags.json"
 METHOD="hyprlock"
 if [ -f "$FLAGS_FILE" ]; then
     val=$(sed -n 's/.*"lockMethod"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$FLAGS_FILE" | head -1)
