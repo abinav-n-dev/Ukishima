@@ -103,12 +103,6 @@ Singleton {
         property alias lockMethod: adapter.lockMethod
         //* Path to the avatar image shown on the lockscreen. Empty = none, and the lock draws a person glyph.
         property alias lockAvatarPath: adapter.lockAvatarPath
-        //* hypridle lock timeout: lock the session after N minutes of inactivity (0 = never).
-        property alias idleLockMin: adapter.idleLockMin
-        //* hypridle screen-off timeout: turn the monitor off after N minutes (0 = never).
-        property alias idleScreenOffMin: adapter.idleScreenOffMin
-        //* hypridle suspend timeout: suspend the machine after N minutes (0 = never).
-        property alias idleSuspendMin: adapter.idleSuspendMin
 
     FileView {
         id: file
@@ -218,12 +212,6 @@ Singleton {
             property string lockMethod: "hyprlock"
             //* Path to the avatar image shown on the lockscreen. Empty = none, and the lock draws a person glyph.
             property string lockAvatarPath: ""
-            //* hypridle lock timeout: lock the session after N minutes of inactivity (0 = never).
-            property int idleLockMin: 5
-            //* hypridle screen-off timeout: turn the monitor off after N minutes (0 = never).
-            property int idleScreenOffMin: 6
-            //* hypridle suspend timeout: suspend the machine after N minutes (0 = never).
-            property int idleSuspendMin: 0
 
         }
     }
