@@ -43,7 +43,39 @@ Rectangle {
             + " current=" + (currentWallpaper || "<empty>")
             + " using=" + wallpaperSource
             + " fallbackUsed=" + (currentWallpaper.length === 0));
+        root.reportCapture(how);
     }
+
+    //* Which backdrop layer actually ended up painting, and why. "capture"
+    //* looks identical to "solid" whenever the screenshot is missing or fails
+    //* to load, and the mode string in the log above cannot tell those two
+    //* cases apart — it only reports what was *asked for*. This reports what
+    //* was *drawn*, which is the only thing that distinguishes a working
+    //* capture from a silently skipped one.
+    function reportCapture(why) {
+        if (background !== "capture")
+            return;
+        let layer;
+        let settled = true;
+        if (grimShot.status === Image.Ready)
+            layer = "grim screenshot " + lockShot + " (loaded, blur=" + blurMax + ")";
+        else if (bgShot.hasContent)
+            layer = "live screencopy blur=" + blurMax;
+        else if (grimShot.status === Image.Error || grimShot.status === Image.Null)
+            layer = "NO CAPTURE (" + lockShot + " status=" + grimShot.status + ") — showing wallpaper " + wallpaperSource;
+        else {
+            // Still decoding. Let the Ready/Error transition below log the
+            // settled answer rather than freezing this half-truth.
+            layer = "NO CAPTURE YET — grimShot still loading, status=" + grimShot.status;
+            settled = false;
+        }
+        if (settled && root.captureLogged)
+            return;
+        root.captureLogged = settled;
+        console.log("[lock] capture " + why + ": " + layer);
+    }
+
+    property bool captureLogged: false
 
     readonly property bool fieldInError: context.showFailure
     //* Clock format follows the desktop General setting (DisplaySurface timeRow
@@ -65,6 +97,13 @@ Rectangle {
     //* "capture" grim-captures the desktop at lock time, "wallpaper" uses the
     //* live wallpaper, "solid" paints the opaque backdrop colour.
     property string background: "capture"
+
+    //* Re-report if the mode changes after load, so a lock that starts in the
+    //* default and is then pointed at "capture" still says what it painted.
+    onBackgroundChanged: {
+        root.captureLogged = false;
+        root.reportCapture("mode=" + background);
+    }
 
     function syncSharedFlags() {
         try {
@@ -353,6 +392,11 @@ Rectangle {
             asynchronous: false
             cache: false
             visible: root.background === "capture"
+
+            //* A grim failure and a not-yet-decoded file look identical on
+            //* screen, and the startup report can land before the decode
+            //* finishes. Report again when it settles.
+            onStatusChanged: root.reportCapture("grimShot status=" + status)
         }
 
         // 2) Per-screen live capture when grim missing (Caelestia screencopyBackground).
@@ -363,7 +407,12 @@ Rectangle {
             anchors.fill: parent
             captureSource: root.lockSurface ? root.lockSurface.screen : null
             live: false
-            visible: root.background === "capture" && !grimShot.visible && hasContent
+            //* Only a fallback for when the grim file is missing or failed to
+            //* decode. This used to read `!grimShot.visible`, which is
+            //* `background !== "capture"` — the exact inverse of when this
+            //* needs to be visible, so it never showed and the fallback was
+            //* unreachable in every capture run.
+            visible: root.background === "capture" && grimShot.status !== Image.Ready && hasContent
         }
 
         // One blurred layer over whichever source is live.
