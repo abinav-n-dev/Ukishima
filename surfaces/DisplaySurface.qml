@@ -116,13 +116,23 @@ SettingsSurface {
             }
         }
 
+        /**
+         * Only meaningful with the Japanese glyphs off — 時 and the clock face
+         * are alternatives in the same slot, so with the glyphs on this toggle
+         * changes nothing at all.
+         *
+         * `visible`, not `enabled`: showGlyphs defaults to on, so an `enabled`
+         * row was a live-looking switch that silently did nothing on a fresh
+         * install. Hidden, it appears exactly when it has an effect. A disabled
+         * item also takes no mouse events, which is what made it read as broken.
+         */
         SettingsRow {
             id: clockIconRow
             surface: root
             name: "Clock icon"
             icon: "clock"
-            sub: "Icon left of the time · with Japanese glyphs off"
-            enabled: !Flags.showGlyphs
+            sub: "Icon left of the time"
+            visible: !Flags.showGlyphs
 
             LinkToggle {
                 s: root.s
