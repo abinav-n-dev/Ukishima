@@ -57,23 +57,25 @@ Scope {
             root.pamIsError = messageIsError;
             // surface lockMessage like Caelestia: keep faillock text
             if (message && message.length > 0)
-                console.log("[lock] pam msg: [" + message + "] err=" + messageIsError + " req=" + responseRequired);
+                console.log("[lock] pam msg: [" + message + "] err=" + messageIsError);
 
         }
-        // Official example pattern (this. prefix matters in some Qt versions)
-        onPamMessage: {
-            if (this.responseRequired) {
-                console.log("[lock] responding len=" + root.currentText.length);
-                this.respond(root.currentText);
-            }
-        }
-        // Caelestia fallback pattern — same respond, harmless if already responded
-        // (respond() is ignored when not required, per qml.cpp)
+        // The ONE place a password is handed to PAM.
+        //
+        // Do not also respond from onMessageChanged: the `message` property
+        // changes *before* `responseRequired` flips, so that handler sees
+        // req=false and does nothing, while onPamMessage fires after. Wiring
+        // all three makes PAM receive two responses for one prompt and log
+        // "PamContext response was ignored as this context does not require
+        // one" on every unlock. responseRequiredChanged is the only signal
+        // that is true exactly when a response is owed — and going true again
+        // on a retry re-arms it for PAM's second prompt, which is what we
+        // want.
         onResponseRequiredChanged: {
-            if (responseRequired) {
-                console.log("[lock] responseRequiredChanged -> respond");
-                respond(root.currentText);
-            }
+            if (!responseRequired)
+                return ;
+            console.log("[lock] responding len=" + root.currentText.length);
+            respond(root.currentText);
         }
         onCompleted: (result) => {
             console.log("[lock] completed=" + result + " (0=Success 1=Failed 2=Error 3=MaxTries)");
