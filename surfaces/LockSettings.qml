@@ -45,9 +45,8 @@ SettingsSurface {
         return t;
     }
 
-    //* The default is ~/.face, which is a fairly obscure convention and is
-    //* not where a picker will ever start you. The stored empty string means
-    //* "use the default", so this is only ever the label.
+    //* The default is ~/.face, a fairly obscure convention. The stored empty
+    //* string means "use the default", so this is only ever a label.
     readonly property string avatarPlaceholder: homeDir + "/.face"
     readonly property string avatarStored: expandPath(Flags.lockAvatarPath)
     //* Does the path we would actually use resolve to a real file? Checked
@@ -60,12 +59,15 @@ SettingsSurface {
     //* marked every path invalid. And text() is no use either: it is the
     //* file's contents, so a JPEG returns kilobytes of binary.
     readonly property bool avatarValid: avatarProbe.loaded
+    //* Deliberately short. The field itself renders the path, so repeating it
+    //* here just wrapped to two lines and crowded out the row. What the field
+    //* cannot say is whether the path resolved and what an empty flag means.
     readonly property string avatarSub: {
         if (Flags.lockAvatarPath.trim() === "")
-            return "default: " + avatarPlaceholder;
+            return "empty, so ~/.face is used";
         if (!avatarValid)
-            return "no such file: " + avatarStored;
-        return avatarStored;
+            return "no such file";
+        return "";
     }
 
     FileView {
@@ -88,26 +90,19 @@ SettingsSurface {
         Flags.lockAvatarPath = expandPath(raw);
     }
 
-    //* Open a file manager at the current path so it is easy to *find* the
-    //* image, then paste the path in. This build of Quickshell has no Qt file
-    //* dialog and the repo has no portal client, so a chooser that returns a
-    //* selection would mean adding a dependency for it. xdg-open is the
-    //* honest, dependency-free half of the job: the field accepts a typed or
-    //* pasted path, and this just gets you to the right directory. If
-    //* avatarStored is a file, its parent is what you want open.
-    function browseAvatar() {
-        //* xdg-open on a *file* opens it in the default viewer, which is not
-        //* what you want here — you want the folder to pick the next one from.
-        let dir = homeDir + "/Pictures";
-        if (avatarStored !== "" && avatarStored.indexOf("/") >= 0)
-            dir = avatarStored.substring(0, avatarStored.lastIndexOf("/")) || "/";
-        browseProc.command = ["xdg-open", dir];
-        browseProc.running = true;
-    }
-
-    Process {
-        id: browseProc
-        running: false
+    /**
+     * Leave the avatar field, either committing what was typed or throwing it
+     * away. Both paths only close the field — on abandon the flag was never
+     * touched, so there is nothing to roll back, and on commit the new value
+     * is already written. Drops focus explicitly, or the TextInput keeps the
+     * key handler alive and the next Return lands in a field nobody is in.
+     */
+    function endAvatarEdit(commit, typed) {
+        if (commit)
+            commitAvatar(typed);
+        avatarPathRow.editing = false;
+        if (avatarInput.focus)
+            avatarInput.focus = false;
     }
 
     rows: [
@@ -214,51 +209,113 @@ SettingsSurface {
             //* *source* behind the toggle, so that is what it is called.
             name: "Image"
             icon: "image"
-            sub: root.avatarSub
+            //* While editing, the sub explains how to get out of the field,
+            //* the same way the wallpaper folder row does. At rest it reports
+            //* the one thing the box cannot: whether the path resolved, and
+            //* what an empty flag means.
+            sub: avatarPathRow.editing ? "Return to save · Esc to cancel" : root.avatarSub
+            captionOnFocus: true
 
-            TextField {
-                id: avatarField
-                width: 168 * root.s
-                //* Seeded once, never bound. Binding `text` to the flag while
-                //* also writing the flag from onTextChanged makes the field
-                //* fight the writer: every keystroke writes flags.json, the
-                //* file watcher reloads, and the bound text is reassigned
-                //* under the cursor. It only looked stable because the value
-                //* round-tripped to the same string. Half-typed paths are
-                //* written and persisted as you go, so an abandoned edit is
-                //* indistinguishable from a committed one.
-                text: Flags.lockAvatarPath
-                placeholderText: root.avatarPlaceholder
-                selectByMouse: true
-                onEditingFinished: root.commitAvatar(text)
-                //* Escape abandons the edit and puts the stored value back.
-                Keys.onPressed: (e) => {
-                    if (e.key === Qt.Key_Escape) {
-                        text = Flags.lockAvatarPath;
-                        e.accepted = true;
-                    } else if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter) {
-                        root.commitAvatar(text);
-                        e.accepted = true;
+            property bool editing: false
+
+            //* Same click-to-edit affordance as the wallpaper folder field
+            //* (surfaces/ThemeSurface.qml wpDirField, surfaces/Wallpaper.qml
+            //* dirField): resting, the row shows the stored path dimmed and
+            //* middle-elided; a click swaps in a TextInput seeded with the
+            //* value, and Enter commits while Escape abandons. Reused rather
+            //* than a bare TextField because a permanently-open input invites
+            //* the question of what is live — here the resting state is the
+            //* committed value and there is only one way in.
+            Item {
+                //* Fixed width, not the wallpaper row's 26 → 200 collapse.
+                //* That row shrinks because a GlyphIcon stands in for the text
+                //* when idle; here the resting state *is* the path, so there
+                //* is nothing to collapse to and animating it would just make
+                //* the value you are reading flicker.
+                width: 190 * root.s
+                height: 26 * root.s
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 9 * root.s
+                    color: Qt.alpha(Theme.frameBg, 0.7)
+                    border.width: 1
+                    border.color: avatarInput.activeFocus ? Qt.alpha(Theme.vermLit, 0.7) : Theme.hairSoft
+                }
+
+                //* The committed value at rest. Shown in the box rather than
+                //* only in the sub-caption, because the sub wraps to two lines
+                //* on a real path and that is a lot to ask anyone to read back.
+                Text {
+                    anchors.fill: parent
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 10 * root.s
+                    rightPadding: 10 * root.s
+                    visible: !avatarPathRow.editing
+                    text: root.avatarStored.length > 0 ? root.avatarStored : root.avatarPlaceholder
+                    elide: Text.ElideMiddle
+                    color: avatarFieldHover.hovered ? Theme.subtle : Theme.faint
+                    font.family: Theme.font
+                    font.pixelSize: 11 * root.s
+                    Behavior on color { ColorAnimation { duration: Motion.fast } }
+                }
+
+                TextInput {
+                    id: avatarInput
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: 10 * root.s
+                    anchors.rightMargin: 10 * root.s
+                    visible: avatarPathRow.editing
+                    enabled: avatarPathRow.editing
+                    clip: true
+                    color: Theme.cream
+                    font.family: Theme.font
+                    font.pixelSize: 11 * root.s
+                    selectByMouse: true
+                    selectionColor: Theme.verm
+
+                    Keys.onPressed: (e) => {
+                        if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter) {
+                            root.endAvatarEdit(true, text);
+                            e.accepted = true;
+                        } else if (e.key === Qt.Key_Escape) {
+                            root.endAvatarEdit(false, "");
+                            e.accepted = true;
+                        }
+                    }
+
+                    //* While typing, show the current committed value as a
+                    //* ghost so the field is never just blank.
+                    Text {
+                        anchors.fill: parent
+                        verticalAlignment: Text.AlignVCenter
+                        visible: avatarInput.text.length === 0
+                        text: root.avatarStored.length > 0 ? root.avatarStored : root.avatarPlaceholder
+                        elide: Text.ElideMiddle
+                        color: Theme.faint
+                        font.family: Theme.font
+                        font.pixelSize: 11 * root.s
                     }
                 }
-            }
 
-            //* "Browse" opens a file manager at the current path so you can
-            //* navigate to the image. It cannot hand the selection back — see
-            //* browseAvatar(). The field stays the source of truth.
-            Label {
-                id: browseLabel
-                text: "browse"
-                font.family: Theme.font
-                font.pixelSize: 11 * root.s
-                color: browseMouse.containsMouse ? Theme.accent : Theme.dim
+                HoverHandler {
+                    id: avatarFieldHover
+                    enabled: !avatarPathRow.editing
+                }
 
                 MouseArea {
-                    id: browseMouse
                     anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.browseAvatar()
+                    enabled: !avatarPathRow.editing
+                    cursorShape: Qt.IBeamCursor
+                    onClicked: {
+                        avatarPathRow.editing = true;
+                        //* Seeded from the flag, not from avatarStored, so an
+                        //* escape and a re-edit show what is actually stored.
+                        avatarInput.text = Flags.lockAvatarPath;
+                        Qt.callLater(avatarInput.forceActiveFocus);
+                    }
                 }
             }
         }
