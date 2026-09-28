@@ -105,6 +105,49 @@ Item {
     /** The bar is down (retracted or suppressed) and its contents are inert. */
     readonly property bool down: hidden || suppressed
 
+    /**
+     * True while the chip delegates have been dropped. Clearing `itemsModel`
+     * destroys every chip object tree, which is worth roughly 6 MiB of heap, and
+     * it also lets the poll above stop asking what the session looks like for a
+     * bar nobody can see.
+     *
+     * Six MiB is the honest figure, and it is worth being exact about where the
+     * larger one comes from, because this is easy to measure wrong. A dock reads
+     * as 26 MiB heavier than the same dock with its chips suppressed — but 20 MiB
+     * of that is `NotoSansCJK-Regular.ttc`, mapped the first time a chip renders
+     * text. A font is held by Qt's font database for the life of the process, so
+     * dropping the delegates does not give it back and neither would tearing the
+     * whole component down; anything else on screen rendering CJK maps it just
+     * the same. What is left over is the object tree, and that is what this drops.
+     *
+     * The component itself stays alive deliberately. Its compiled form and the
+     * desktop-entry snapshot it reads are a rounding error beside the number
+     * above, and keeping the instance means the shell window's input mask, reveal
+     * chain and settings panel go on reading exactly what they always read. Those
+     * are the most interdependent bindings in the shell, and this change does not
+     * touch one of them.
+     *
+     * `down`, rather than visibility generally. An `empty` dock has no delegates
+     * to drop, so reclaiming one would save nothing, and skipping it is also what
+     * keeps a reclaimed dock recoverable. `down` clears from outside this
+     * component — the shell window's hover feed on reveal, a monitor leaving
+     * fullscreen, a surface opening, the flag being switched back on — whereas
+     * only the poll in `refreshItems` can make an `empty` dock non-empty, and the
+     * poll is exactly what reclaim stops. A dock reclaimed under `down` always has
+     * a way back; one reclaimed while `empty` could never come back at all.
+     */
+    property bool reclaimed: false
+
+    /**
+     * The `itemSig` value meaning "the delegates are gone, rebuild them". A real
+     * signature is assembled from window and pin state and can legitimately be
+     * empty — no toplevels and no pins — so neither `""` nor `null` will do: QML
+     * coerces `null` to `""` for a string property, which is also the value the
+     * dock starts on. A NUL cannot occur in a signature built from these fields,
+     * so nothing can match it and the next refresh always rebuilds.
+     */
+    readonly property string droppedSig: "\u0000"
+
     readonly property bool minimal: Flags.dockMinimal
 
     /** Inline title row under the icons (full mode only); minimal is icon + dot. */
@@ -525,10 +568,25 @@ Item {
         // run fast: ~120ms means the active dot answers within a blink of the
         // activation actually landing (there is no reactive Hyprland event to
         // hook in this build). 400ms made the dot visibly lag after a click.
+        // It is also the dock's only reason to keep asking what the session looks
+        // like, so reclaim stops it rather than watching a bar nobody can see.
         interval: 120
         repeat: true
-        running: Flags.dockEnabled
+        running: Flags.dockEnabled && !root.reclaimed
         onTriggered: root.refreshItems()
+    }
+
+    /**
+     * How long the bar may sit down before its chip delegates are dropped. Same
+     * flag and same delay as the surface sweep in Pill.qml, so the whole shell
+     * reclaims on one schedule behind one kill switch rather than growing a second
+     * pair of its own.
+     */
+    Timer {
+        id: reclaimTimer
+        interval: Math.max(0, Flags.unloadSec) * 1000
+        repeat: false
+        onTriggered: root.dropContent()
     }
 
     Connections {
@@ -536,7 +594,25 @@ Item {
         function onPinsChanged() { root.refreshItems(); }
     }
 
-    Component.onCompleted: root.refreshItems()
+    // Either of these can end a reclaim: the bar coming back up, or the flag that
+    // asked for reclaiming in the first place being switched off.
+    onDownChanged: root.updateReclaim()
+
+    Connections {
+        target: Flags
+        // Turning memorySaver off hands the delegates straight back rather than
+        // leaving them dropped until the bar next happens to come up.
+        function onMemorySaverChanged() { root.updateReclaim(); }
+    }
+
+    Component.onCompleted: {
+        root.refreshItems();
+        // `down` is already true whenever the shell starts on a fullscreen
+        // monitor or in a game mode, and onDownChanged does not fire for a value
+        // set before this component existed, so the decision is made once here as
+        // well.
+        root.updateReclaim();
+    }
 
     /**
      * Rebuild only when the underlying state actually changed. `items` stays
@@ -555,7 +631,60 @@ Item {
     property string itemSig: ""
     property int modelRev: 0
     property var itemsModel: ListModel {}
+
+    /**
+     * The one place the reclaim decision is made, so the timer, the flag and the
+     * two change handlers cannot disagree about who is responsible for what.
+     * `down` and `memorySaver` are the whole policy; everything else follows.
+     */
+    function updateReclaim() {
+        if (Flags.memorySaver && root.down) {
+            // Already dropped: leave it dropped, and do not re-arm the timer for a
+            // down period the delegates are already absent for.
+            if (!root.reclaimed) reclaimTimer.start();
+        } else {
+            reclaimTimer.stop();
+            if (root.reclaimed) root.restoreContent();
+        }
+    }
+
+    /**
+     * Drop the chip delegates. `itemSig` is invalidated first because it describes
+     * delegates that are about to stop existing: leaving it in place would let the
+     * first refresh after the bar returned match it, skip the rebuild, and leave
+     * the dock permanently blank.
+     */
+    function dropContent() {
+        if (root.reclaimed || !root.down) return;
+        root.reclaimed = true;
+        root.itemSig = root.droppedSig;
+        root.itemsModel.clear();
+        // Belt and braces. A drag cannot really outlive the bar going down, but
+        // clearing the model out from under one would leave it holding a delegate
+        // that is no longer there.
+        root.abandonStaleDrag();
+    }
+
+    /**
+     * Put the delegates back. This runs on the same change that starts the bar
+     * returning, so the rebuild lands underneath the slide rather than after it.
+     * It is cheap enough to be invisible: measured at 3ms for a two-chip dock
+     * against a 420ms transition, and it reads the Hyprland and desktop-entry
+     * state as cached bindings rather than re-querying, so what it costs is
+     * object construction and nothing else.
+     */
+    function restoreContent() {
+        if (!root.reclaimed) return;
+        root.reclaimed = false;
+        root.refreshItems();
+    }
+
     function refreshItems() {
+        // The delegates are dropped deliberately; rebuilding them behind the
+        // reclaim's back would undo it, and the poll that drives this is the very
+        // thing reclaim stops. `restoreContent` clears the flag before it gets
+        // here, so it does reach the rebuild.
+        if (root.reclaimed) return;
         var sig = root.itemsSignature();
         if (sig === root.itemSig) return;
         root.itemSig = sig;
@@ -1249,7 +1378,11 @@ Item {
                     color: root.dockCopy
                     opacity: chip.hover ? 1 : 0.85
                     Behavior on opacity { NumberAnimation { duration: Motion.fast } }
-                    text: !chip.divider ? (chip.modelData.name || "") : ""
+                    /* Empty unless the label is actually on screen, for the same
+                     * reason the preview rows gate theirs: a desktop entry's Name
+                     * can carry CJK too, and shaping it for a label the minimal
+                     * dock never shows would map the same 19.5 MiB of font. */
+                    text: root.titled && !chip.divider ? (chip.modelData.name || "") : ""
                 }
 
                 Rectangle {
@@ -1335,6 +1468,22 @@ Item {
                         && root.items[index].windows
                         ? root.orderWindows(root.items[index].windows) : []
                     readonly property bool multi: !chip.divider && wins.length > 1
+                    /**
+                     * Whether the popover is on screen, named so the rows can gate
+                     * their text on it. Binding a window title into a `Text` makes
+                     * Qt shape it, and one CJK character in a title — a browser tab
+                     * reading `浮島 Ukishima`, say — pulls Noto Sans CJK into the
+                     * process: 19.5 MiB of font mapped for the life of the shell,
+                     * paid by a popover nobody has hovered, on every chip, at
+                     * startup. Gating the text on the same expression that decides
+                     * visibility is what keeps the two from drifting apart again.
+                     *
+                     * The cost moves to the hover that earns it, which is the
+                     * honest place for it: the font loads once, on the first hover
+                     * that actually shows a title needing it, and stays loaded for
+                     * the shell's lifetime after that.
+                     */
+                    readonly property bool shown: multi && !root.down && (chip.hover || panel.containsMouse)
                     readonly property real pW: 200 * s
                     readonly property real pH: Math.min(wins.length, 5) * (30 * s) + 14 * s
                     readonly property real gap: 9 * s
@@ -1349,7 +1498,7 @@ Item {
                      * on their own anyway; the !down guard is belt-and-braces
                      * against a stale hover during the slide).
                      */
-                    visible: multi && !root.down && (chip.hover || panel.containsMouse)
+                    visible: preview.shown
                     width: pW
                     height: multi ? pH + preview.gap : 0
                     anchors.bottom: parent.top
@@ -1477,7 +1626,8 @@ Item {
                                     elide: Text.ElideRight
                                     font.pixelSize: 11 * s
                                     color: root.dockCopy
-                                    text: modelData.title ? modelData.title : "(untitled)"
+                                    text: preview.shown
+                                        ? (modelData.title ? modelData.title : "(untitled)") : ""
                                 }
 
                                 Row {
@@ -1491,7 +1641,8 @@ Item {
                                         font.pixelSize: 9 * s
                                         color: root.dockFaint
                                         verticalAlignment: Text.AlignVCenter
-                                        text: modelData.workspace && modelData.workspace.name
+                                        text: preview.shown && modelData.workspace
+                                            && modelData.workspace.name
                                             ? String(modelData.workspace.name) : ""
                                     }
 
