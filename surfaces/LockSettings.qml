@@ -236,7 +236,19 @@ SettingsSurface {
             name: "Blur"
             icon: "droplet"
             sub: "Background blur strength"
-            enabled: Flags.lockBackground === "capture"
+            //* Hidden, not disabled, outside capture mode. LockSurface's blur
+            //* layer is `visible: background === "capture" && ...`, so in
+            //* wallpaper and solid there is genuinely nothing for this to
+            //* change — a greyed-out row just spends a line on the reader.
+            //*
+            //* Hiding rather than disabling also closes a hole: a disabled row
+            //* is still in `rows`, so kbActivate would keep seg-cycling a
+            //* control the mouse refuses to touch. Out of the list means out
+            //* of reach by both.
+            //*
+            //* The stored value is untouched, so switching back to capture
+            //* finds the blur level you had rather than a default.
+            visible: Flags.lockBackground === "capture"
 
             SettingsSeg {
                 s: root.s
