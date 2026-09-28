@@ -21,6 +21,59 @@ SettingsSurface {
     backSurface: "appearance"
     implicitHeight: content.implicitHeight
 
+    // ── Lock method ─────────────────────────────────────────────────────
+    //
+    // "hyprlock" is a hand-off to a program this project neither ships a
+    // config for nor depends on, so it may not be installed at all. Offering
+    // it unconditionally meant a machine without it had a setting that could
+    // not be honoured — and scripts/lock.sh used to `exec hyprlock` on faith,
+    // so choosing it there exited 127 and left the session unlocked.
+    //
+    // Probed with the same `command -v` the script uses, in the same shell, so
+    // the row and the script can never disagree about what is available.
+
+    /** True once the probe has run and hyprlock is on PATH. False before that
+     *  and forever after if it is not there. */
+    property bool hyprlockAvailable: false
+
+    Process {
+        id: hyprlockProbe
+        running: true
+        command: ["sh", "-c", "command -v hyprlock >/dev/null 2>&1"]
+        onExited: (code) => root.hyprlockAvailable = (code === 0)
+    }
+
+    /**
+     * The methods on offer, in order. Hyprlock is dropped when it is not
+     * installed; Quickshell is always there, because the shell that is drawing
+     * this row is itself Quickshell, so its own lock has no missing dependency.
+     *
+     * `vals` in the row registry below reads this same list, not a literal —
+     * a seg row's keyboard cycling walks `vals`, so a hardcoded copy there
+     * would let the arrow keys select a method the row no longer shows.
+     */
+    readonly property var methodValues: hyprlockAvailable
+        ? ["hyprlock", "quickshell"]
+        : ["quickshell"]
+
+    /**
+     * What the control shows, which is not always what the flag says. A flag
+     * left on "hyprlock" from a machine that had it, or hand-edited into
+     * flags.json, is not a value this row can display — SettingsSeg lights a
+     * pill by comparing against `value`, so an unmatchable value lights
+     * nothing and the row reads as broken. Show the method that will actually
+     * run. The flag is deliberately left alone: lock.sh already downgrades,
+     * and rewriting a setting just because someone opened a surface is a worse
+     * surprise than a stale preference.
+     */
+    readonly property var methodValue:
+        (methodValues.indexOf(Flags.lockMethod) >= 0) ? Flags.lockMethod : methodValues[0]
+
+    /** Says why the option is missing, instead of silently showing one pill. */
+    readonly property string methodSub: hyprlockAvailable
+        ? "Quickshell lockscreen or plain hyprlock"
+        : "Quickshell lockscreen — hyprlock is not installed"
+
     // ── Avatar path helpers ────────────────────────────────────────────
     //
     // The lock is a separate process and reads this flag verbatim, so what is
@@ -144,7 +197,7 @@ SettingsSurface {
      * `rows` below is the filtered view of this that the nav actually walks.
      */
     readonly property var allRows: [
-        { item: methodRow, kind: "seg", vals: ["hyprlock", "quickshell"], get: function () { return Flags.lockMethod; }, set: function (v) { Flags.lockMethod = v; } },
+        { item: methodRow, kind: "seg", vals: root.methodValues, get: function () { return Flags.lockMethod; }, set: function (v) { Flags.lockMethod = v; } },
         { item: bgRow, kind: "seg", vals: ["capture", "wallpaper", "solid"], get: function () { return Flags.lockBackground; }, set: function (v) { Flags.lockBackground = v; } },
         { item: blurRow, kind: "seg", vals: [0, 32, 64, 96], get: function () { return Flags.lockBlur; }, set: function (v) { Flags.lockBlur = v; } },
         { item: avatarRow, kind: "toggle", get: function () { return Flags.lockShowAvatar; }, set: function (v) { Flags.lockShowAvatar = v; } },
@@ -199,15 +252,21 @@ SettingsSurface {
             surface: root
             name: "Lock method"
             icon: "lock"
-            sub: "Quickshell lockscreen or plain hyprlock"
+            sub: root.methodSub
 
             SettingsSeg {
                 s: root.s
-                options: [
-                    { label: "Hyprlock", value: "hyprlock" },
-                    { label: "Quickshell", value: "quickshell" }
-                ]
-                value: Flags.lockMethod
+                //* Built from methodValues so the pills and the row registry
+                //* below are the same list, and neither can offer a method
+                //* that is not installed.
+                options: {
+                    const out = [];
+                    for (const v of root.methodValues) {
+                        out.push({ label: v === "hyprlock" ? "Hyprlock" : "Quickshell", value: v });
+                    }
+                    return out;
+                }
+                value: root.methodValue
                 onPicked: (v) => Flags.lockMethod = v
             }
         }
