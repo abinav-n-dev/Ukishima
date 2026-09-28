@@ -21,6 +21,14 @@ Scope {
     signal unlocked()
     signal failed()
 
+    //* Seconds to wait on a PAM that never reports back. pam_authenticate on
+    //* a network directory home, or against a wedged helper, can hang with no
+    //* result and no error. Without a ceiling the lock sits on "Authenticating"
+    //* forever with the keyboard disabled by the unlockInProgress guard, and
+    //* the only way out is a TTY -- the exact situation this lockscreen exists
+    //* to prevent. Aborting lets the user simply try again.
+    readonly property int authTimeoutMs: 15000
+
     function tryUnlock() {
         if (currentText === "" || unlockInProgress) {
             console.log("[lock] tryUnlock ignored empty/active");
@@ -30,12 +38,38 @@ Scope {
         unlockInProgress = true;
         showFailure = false;
         pamMessage = "";
+        authTimer.restart();
         var ok = pam.start();
         console.log("[lock] pam.start()=" + ok + " active=" + pam.active);
         if (!ok) {
             unlockInProgress = false;
+            authTimer.stop();
             showFailure = true;
             pamMessage = "Could not start PAM";
+        }
+    }
+
+    // Stop the countdown the moment PAM gives any verdict. onCompleted and
+    // onError both call this, so a normal unlock never leaves it running.
+    function finishAuth() {
+        authTimer.stop();
+        unlockInProgress = false;
+    }
+
+    Timer {
+        id: authTimer
+
+        interval: root.authTimeoutMs
+        repeat: false
+        onTriggered: {
+            console.log("[lock] PAM timed out after " + root.authTimeoutMs + "ms, aborting");
+            if (pam.active)
+                pam.abort();
+            root.pamMessage = "Timed out, try again";
+            root.currentText = "";
+            root.showFailure = true;
+            root.finishAuth();
+            root.failed();
         }
     }
 
@@ -93,14 +127,14 @@ Scope {
                 root.showFailure = true;
                 root.failed();
             }
-            root.unlockInProgress = false;
+            root.finishAuth();
         }
         onError: (error) => {
             console.log("[lock] pam error=" + error);
             root.pamMessage = "Auth error " + error;
             root.currentText = "";
             root.showFailure = true;
-            root.unlockInProgress = false;
+            root.finishAuth();
         }
     }
 
