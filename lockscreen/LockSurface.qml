@@ -61,14 +61,11 @@ Rectangle {
             layer = "grim screenshot " + lockShot + " (loaded, blur=" + blurMax + ")";
         else if (bgShot.hasContent)
             layer = "live screencopy blur=" + blurMax;
-        else if (grimShot.status === Image.Error || grimShot.status === Image.Null)
+        else if (grimSource === "")
+            // Still polling for the concurrent grim. Expected, not a failure.
+            layer = "capture pending " + captureWaited + "ms — showing wallpaper " + wallpaperSource;
+        else
             layer = "NO CAPTURE (" + lockShot + " status=" + grimShot.status + ") — showing wallpaper " + wallpaperSource;
-        else {
-            // Still decoding. Let the Ready/Error transition below log the
-            // settled answer rather than freezing this half-truth.
-            layer = "NO CAPTURE YET — grimShot still loading, status=" + grimShot.status;
-            settled = false;
-        }
         if (settled && root.captureLogged)
             return;
         root.captureLogged = settled;
@@ -87,6 +84,12 @@ Rectangle {
     //* parses the file and never writes it.
     property bool use12h: false
     property bool batteryShimmerOn: true
+    //* Read from the desktop's reduceMotion setting. When it is on, the lock
+    //* skips the entrance choreography entirely and paints its final state on
+    //* the first frame. The staggered fade/zoom/translate is exactly the kind
+    //* of motion that setting exists to suppress, and honouring it here also
+    //* gives anyone who finds the lock sluggish a one-setting way out.
+    property bool reduceMotion: false
     //* Lock-specific settings, written by the pill's LOCK surface (surfaces/
     //* LockSettings.qml -> Flags -> flags.json) and read back here. Defaults
     //* match the Flags adapter so a missing or partial file keeps today's look.
@@ -98,10 +101,64 @@ Rectangle {
     //* live wallpaper, "solid" paints the opaque backdrop colour.
     property string background: "capture"
 
+    //* Empty until the concurrent grim capture lands on disk. See grimShot.
+    property string grimSource: ""
+    property int grimVersion: 0
+    property int captureWaitMs: 4000
+    property int captureWaited: 0
+    //* Set once the capture is attached, so grimShot can fade up over the
+    //* wallpaper instead of popping in.
+    property bool grimFaded: false
+
+    //* Try to attach the capture, retrying until it decodes.
+    //*
+    //* Qt gives no "file appeared" signal for an arbitrary path, and a
+    //* FileView watch cannot be armed on a file that does not exist yet. So
+    //* this polls, and each attempt uses a different URL (?v=N) to defeat the
+    //* image cache. That cache-buster is load-bearing: binding `source` to a
+    //* path that is not there yet latches the Image at status=Error, and it
+    //* never re-reads that URL even after the file lands. Measured here --
+    //* missing file stayed Error forever; a retry with ?v=2 went to Ready.
+    //*
+    //* Retrying on decode failure rather than on a file-size check is
+    //* deliberate. grim writes the PNG in place, so a retry can land
+    //* mid-encode and read a truncated file. That is safe: a PNG without its
+    //* IEND chunk will not decode, so the attempt fails and the next one tries
+    //* again. Only a complete file reaches status=Ready.
+    function tryLoadCapture() {
+        if (grimSource !== "")
+            return;
+        grimVersion++;
+        grimSource = "file://" + lockShot + "?v=" + grimVersion;
+
+        if (grimShot.status === Image.Ready) {
+            grimPoll.stop();
+            grimFaded = true;
+            console.log("[lock] capture attached after " + captureWaited + "ms (attempt " + grimVersion + ")");
+            reportCapture("attached");
+            return;
+        }
+        // Not decodable yet. Clear it so the next tick makes a genuinely new
+        // attempt; the backdrop stays on the wallpaper meanwhile.
+        grimSource = "";
+        captureWaited += grimPoll.interval;
+        if (captureWaited >= captureWaitMs) {
+            grimPoll.stop();
+            console.log("[lock] capture never decoded after " + captureWaited + "ms -- falling back to the wallpaper");
+            reportCapture("timeout");
+        }
+    }
+
     //* Re-report if the mode changes after load, so a lock that starts in the
     //* default and is then pointed at "capture" still says what it painted.
     onBackgroundChanged: {
         root.captureLogged = false;
+        //* The mode is applied from the flags file after onCompleted, so the
+        //* poll armed there may have been skipped (the default is "capture",
+        //* but an explicit "solid" would have suppressed it). Arm it now that
+        //* capture is actually selected.
+        if (background === "capture" && grimSource === "" && !grimPoll.running)
+            grimPoll.start();
         root.reportCapture("mode=" + background);
     }
 
@@ -112,6 +169,9 @@ Rectangle {
                 root.use12h = shared.time12h;
 
             root.batteryShimmerOn = (!shared || shared.batteryShimmer !== false) && (!shared || shared.reduceMotion !== true);
+
+            if (shared && typeof shared.reduceMotion === "boolean")
+                root.reduceMotion = shared.reduceMotion;
 
             if (shared && typeof shared.lockShowAvatar === "boolean")
                 root.showAvatar = shared.lockShowAvatar;
@@ -132,6 +192,8 @@ Rectangle {
                 root.background = shared.lockBackground;
         } catch (e) {
         }
+        //* Now that reduceMotion is known, the entrance can start.
+        root.startEntrance();
     }
 
     FileView {
@@ -262,10 +324,54 @@ Rectangle {
     // backdrop settles (fade + zoom + focus pull), clock drifts down,
     // auth cluster rises — staggered so the lock "assembles" smoothly
     Component.onCompleted: {
-        showAnim.start();
+        if (background === "capture" && grimSource === "")
+            grimPoll.start();
+        //* The entrance is NOT started here. reduceMotion lives in the shared
+        //* flags file, which loads asynchronously, so at onCompleted it is
+        //* still the default `false` -- starting the animation then ran the
+        //* full choreography for everyone, including users who had asked for
+        //* reduced motion. startEntrance() is called once the flags are known.
+        entranceFallback.start();
         Qt.callLater(() => reportWallpaper("startup"));
     }
 
+    //* Start the entrance at most once, honouring reduceMotion.
+    property bool entranceStarted: false
+
+    function startEntrance() {
+        if (entranceStarted)
+            return;
+        entranceStarted = true;
+        if (reduceMotion)
+            console.log("[lock] reduceMotion on -- entrance skipped");
+        else
+            showAnim.start();
+    }
+
+    //* If the flags file never arrives (missing, unreadable, a partial write),
+    //* still run the entrance rather than leaving every element stuck at
+    //* opacity 0 on a locked screen.
+    Timer {
+        id: entranceFallback
+
+        interval: 300
+        onTriggered: root.startEntrance()
+    }
+
+    //* Entrance choreography: a quick backdrop fade, then the clock and the
+    //* auth cluster settling in just behind it.
+    //*
+    //* These were 450/750/90/180/140ms over 500-600ms eases, which put the
+    //* last element at 780ms after the first frame. Combined with process
+    //* startup that is a ~2s lock, and the long tail is why it read as
+    //* sluggish rather than merely brief. Now the whole thing lands in ~380ms
+    //* — still staggered enough to feel assembled, short enough not to wait on.
+    //*
+    //* The backdrop's `scale` zoom is gone. bgLayer contains a full-screen
+    //* MultiEffect, so animating its scale re-rasterised a 1920x1200 blur on
+    //* every frame of a 750ms animation — the single most expensive thing in
+    //* the entrance, for a 5% zoom on an already-blurred image that nobody
+    //* could see moving. The opacity fade alone carries it.
     ParallelAnimation {
         id: showAnim
 
@@ -274,27 +380,13 @@ Rectangle {
             property: "opacity"
             from: 0
             to: 1
-            duration: 450
+            duration: 220
             easing.type: Easing.OutCubic
         }
-        NumberAnimation {
-            target: bgLayer
-            property: "scale"
-            from: 1.05
-            to: 1
-            duration: 750
-            easing.type: Easing.OutCubic
-        }
-        //* No blurMax animation here any more. It used to run 64 -> 32 as part
-        //* of the entrance, which was fine while blurMax was a literal — but it
-        //* is now bound to the user's Blur setting, and an animation assigns
-        //* imperatively, which tears that binding out. Every lock landed on 32
-        //* regardless of what LOCK says. The backdrop fade and zoom carry the
-        //* entrance on their own.
 
         SequentialAnimation {
             PauseAnimation {
-                duration: 90
+                duration: 40
             }
 
             ParallelAnimation {
@@ -303,15 +395,15 @@ Rectangle {
                     property: "opacity"
                     from: 0
                     to: 1
-                    duration: 500
+                    duration: 200
                     easing.type: Easing.OutCubic
                 }
                 NumberAnimation {
                     target: clockShift
                     property: "y"
-                    from: -22
+                    from: -14
                     to: 0
-                    duration: 600
+                    duration: 280
                     easing.type: Easing.OutCubic
                 }
             }
@@ -320,7 +412,7 @@ Rectangle {
 
         SequentialAnimation {
             PauseAnimation {
-                duration: 180
+                duration: 80
             }
 
             ParallelAnimation {
@@ -329,15 +421,15 @@ Rectangle {
                     property: "opacity"
                     from: 0
                     to: 1
-                    duration: 500
+                    duration: 200
                     easing.type: Easing.OutCubic
                 }
                 NumberAnimation {
                     target: authShift
                     property: "y"
-                    from: 26
+                    from: 16
                     to: 0
-                    duration: 600
+                    duration: 280
                     easing.type: Easing.OutCubic
                 }
             }
@@ -346,7 +438,7 @@ Rectangle {
 
         SequentialAnimation {
             PauseAnimation {
-                duration: 140
+                duration: 120
             }
 
             ParallelAnimation {
@@ -355,7 +447,7 @@ Rectangle {
                     property: "opacity"
                     from: 0
                     to: 1
-                    duration: 500
+                    duration: 200
                     easing.type: Easing.OutCubic
                 }
                 NumberAnimation {
@@ -363,7 +455,7 @@ Rectangle {
                     property: "opacity"
                     from: 0
                     to: 0.9
-                    duration: 500
+                    duration: 200
                     easing.type: Easing.OutCubic
                 }
             }
@@ -380,23 +472,62 @@ Rectangle {
 
         anchors.fill: parent
         opacity: 0
-        scale: 1.05
+        //* No `scale` here any more. It existed only as the start value for the
+        //* entrance zoom, which is gone. Leaving 1.05 in place with nothing to
+        //* animate it back would have left the backdrop permanently zoomed in.
 
         // 1) grim pre-capture — most reliable, no ext-session-lock race
         Image {
             id: grimShot
 
             anchors.fill: parent
-            source: "file://" + root.lockShot
+            //* Deliberately empty until the file is actually there.
+            //* lock-qs.sh runs grim concurrently with quickshell's startup so
+            //* the session locks without waiting ~450ms for a PNG encode. That
+            //* means this file may not exist yet when the surface comes up.
+            //* Binding `source` straight to the path made Qt latch onto the
+            //* missing file, report status=Error, and never look again — the
+            //* screenshot then never appeared no matter how long grim took.
+            //* An empty source stays Null and retryable; grimPoll sets it the
+            //* moment the file lands.
+            source: root.grimSource
             fillMode: Image.PreserveAspectCrop
             asynchronous: false
             cache: false
             visible: root.background === "capture"
+            //* The capture can land a few hundred milliseconds after the
+            //* surface is already up, so it must not simply appear. Without
+            //* this it popped in over the wallpaper mid-entrance, which read
+            //* as a glitch rather than a screenshot settling.
+            opacity: root.grimFaded ? 1 : 0
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: root.reduceMotion ? 0 : 180
+                    easing.type: Easing.OutCubic
+                }
+
+            }
 
             //* A grim failure and a not-yet-decoded file look identical on
             //* screen, and the startup report can land before the decode
             //* finishes. Report again when it settles.
             onStatusChanged: root.reportCapture("grimShot status=" + status)
+        }
+
+        //* Watch for the concurrent grim to finish. A missing file is not a
+        //* failure here — it is the expected state for the first few hundred
+        //* milliseconds of every lock. Give up after a bounded window so a
+        //* grim that never lands settles on the wallpaper instead of polling
+        //* for the lifetime of the lock.
+        Timer {
+            id: grimPoll
+
+            interval: 25
+            repeat: root.grimSource === ""
+            running: root.background === "capture" && root.grimSource === ""
+
+            onTriggered: root.tryLoadCapture()
         }
 
         // 2) Per-screen live capture when grim missing (Caelestia screencopyBackground).
