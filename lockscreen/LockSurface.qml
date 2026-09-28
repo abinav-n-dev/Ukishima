@@ -1005,7 +1005,10 @@ Rectangle {
                     Label {
                         anchors.centerIn: parent
                         visible: !context.unlockInProgress
-                        text: ""
+                        //* U+F023, nf-fa-lock. This was an empty string: the
+                        //* glyph was lost when LockShape was dropped, leaving
+                        //* a bare 26px gap at the left end of the pill.
+                        text: "\uf023"
                         color: root.fieldInError ? "#ff7a7a" : Qt.rgba(1, 1, 1, 0.6)
                         font.family: "JetBrainsMono NFM"
                         font.pointSize: 11
@@ -1123,6 +1126,36 @@ Rectangle {
                             NumberAnimation {
                                 duration: 160
                                 easing.type: Easing.OutCubic
+                            }
+
+                        }
+
+                        //* U+E862, nf-fa-return.
+                        //*
+                        //* This circle used to carry no glyph at all, and that
+                        //* is what the "extra dot" in the password field was: a
+                        //* bright white circle sitting ~30px from a row of 10px
+                        //* white password dots — same colour, same shape,
+                        //* nearly twice the diameter. Measured on a rendered
+                        //* pill: ten 10x10 dots and one 18x18 circle, with
+                        //* nothing in the lock-icon slot to balance it. The
+                        //* arrow makes it read as a button instead.
+                        //*
+                        //* The glyph inverts with the button. The circle goes
+                        //* from 0.22 white (dim, so the glyph stays light) to
+                        //* 0.92 white (bright, so the glyph has to go dark).
+                        Label {
+                            anchors.centerIn: parent
+                            text: "\ue862"
+                            font.family: "JetBrainsMono NFM"
+                            font.pointSize: 10
+                            color: context.currentText.length > 0 ? "#14181a" : Qt.rgba(1, 1, 1, 0.75)
+
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration: 200
+                                }
+
                             }
 
                         }
