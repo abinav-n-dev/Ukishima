@@ -18,7 +18,21 @@ Rectangle {
     readonly property string home: Quickshell.env("HOME")
     readonly property string userName: context.userName
     property string avatarPath: ""
-    readonly property string facePath: avatarPath.length > 0 ? avatarPath : (home + "/.face")
+    //* A `file://` URL does not expand a leading tilde, so `~/Pictures/me.png`
+    //* loads as status=Null and the avatar silently never appears. The
+    //* settings surface expands before storing, but flags.json is a plain
+    //* file anyone can edit by hand, so expand here too. Both halves agree on
+    //* the default: an empty flag means ~/.face.
+    readonly property string facePath: {
+        const t = avatarPath.trim();
+        if (t === "")
+            return home + "/.face";
+        if (t === "~")
+            return home;
+        if (t.indexOf("~/") === 0)
+            return home + t.slice(1);
+        return t;
+    }
     // grim pre-capture from lock.sh (hyprlock screenshot equivalent),
     // then live ukishima wallpaper, then static fallback
     readonly property string lockShot: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/ukishima/lock-shot.png"

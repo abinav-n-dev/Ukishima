@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import Quickshell
+import Quickshell.Io
 import "../Singletons"
 import "../components"
 
@@ -19,6 +20,95 @@ SettingsSurface {
 
     backSurface: "appearance"
     implicitHeight: content.implicitHeight
+
+    // ── Avatar path helpers ────────────────────────────────────────────
+    //
+    // The lock is a separate process and reads this flag verbatim, so what is
+    // stored here has to survive being turned into a `file://` URL by a QML
+    // Image over there. Two things that is sensitive to:
+
+    readonly property string homeDir: Quickshell.env("HOME") || ""
+    //* `~` and `~/x` are what a person actually types, and the placeholder
+    //* used to advertise exactly that. A `file://` URL does not expand a
+    //* leading tilde, though: the Image just sits at status=Null forever and
+    //* the avatar silently never appears. Verified — `file://~/...` loads as
+    //* status 0, the same path with $HOME substituted loads as status 1.
+    //* Expand here so the flag is always an absolute path.
+    function expandPath(p) {
+        const t = (p === undefined || p === null) ? "" : String(p).trim();
+        if (t === "")
+            return "";
+        if (t === "~")
+            return homeDir;
+        if (t.indexOf("~/") === 0)
+            return homeDir + t.slice(1);
+        return t;
+    }
+
+    //* The default is ~/.face, which is a fairly obscure convention and is
+    //* not where a picker will ever start you. The stored empty string means
+    //* "use the default", so this is only ever the label.
+    readonly property string avatarPlaceholder: homeDir + "/.face"
+    readonly property string avatarStored: expandPath(Flags.lockAvatarPath)
+    //* Does the path we would actually use resolve to a real file? Checked
+    //* with a FileView rather than assumed, so a typo shows up here instead of
+    //* as a blank circle on the lock screen.
+    //*
+    //* `loaded` is the whole signal: true for a file that exists, false for
+    //* one that does not. `loadFailed` is a *signal* here, not a property, so
+    //* reading it yields a function object — which is truthy, and would have
+    //* marked every path invalid. And text() is no use either: it is the
+    //* file's contents, so a JPEG returns kilobytes of binary.
+    readonly property bool avatarValid: avatarProbe.loaded
+    readonly property string avatarSub: {
+        if (Flags.lockAvatarPath.trim() === "")
+            return "default: " + avatarPlaceholder;
+        if (!avatarValid)
+            return "no such file: " + avatarStored;
+        return avatarStored;
+    }
+
+    FileView {
+        id: avatarProbe
+        //* No ?v= cache-busting here. That trick is for Image, which latches
+        //* an Error on a missing file and will not re-read the same URL; this
+        //* is a FileView, and a query string on a file:// URL makes it fail
+        //* outright — verified: the same path loads with `loaded=true` plain
+        //* and `loaded=false` with `?v=12345` appended, which reported a real
+        //* wallpaper as "no such file".
+        //*
+        //* The path is a binding on avatarStored, and the flag only changes
+        //* when the user commits an edit, so it re-arms on exactly the events
+        //* that matter without needing to defeat any cache.
+        path: root.avatarStored !== "" ? "file://" + root.avatarStored : ""
+        printErrors: false
+    }
+
+    function commitAvatar(raw) {
+        Flags.lockAvatarPath = expandPath(raw);
+    }
+
+    //* Open a file manager at the current path so it is easy to *find* the
+    //* image, then paste the path in. This build of Quickshell has no Qt file
+    //* dialog and the repo has no portal client, so a chooser that returns a
+    //* selection would mean adding a dependency for it. xdg-open is the
+    //* honest, dependency-free half of the job: the field accepts a typed or
+    //* pasted path, and this just gets you to the right directory. If
+    //* avatarStored is a file, its parent is what you want open.
+    function browseAvatar() {
+        //* xdg-open on a *file* opens it in the default viewer, which is not
+        //* what you want here — you want the folder to pick the next one from.
+        let dir = homeDir + "/Pictures";
+        if (avatarStored !== "" && avatarStored.indexOf("/") >= 0)
+            dir = avatarStored.substring(0, avatarStored.lastIndexOf("/")) || "/";
+        browseProc.command = ["xdg-open", dir];
+        browseProc.running = true;
+    }
+
+    Process {
+        id: browseProc
+        running: false
+    }
 
     rows: [
         { item: methodRow, kind: "seg", vals: ["hyprlock", "quickshell"], get: function () { return Flags.lockMethod; }, set: function (v) { Flags.lockMethod = v; } },
@@ -119,15 +209,57 @@ SettingsSurface {
         SettingsRow {
             id: avatarPathRow
             surface: root
-            name: "Avatar path"
+            //* Not "Avatar" — the row above already owns that label, and two
+            //* rows with the same name read as a rendering bug. This is the
+            //* *source* behind the toggle, so that is what it is called.
+            name: "Image"
             icon: "image"
-            sub: "Leave empty for ~/.face"
+            sub: root.avatarSub
 
             TextField {
+                id: avatarField
+                width: 168 * root.s
+                //* Seeded once, never bound. Binding `text` to the flag while
+                //* also writing the flag from onTextChanged makes the field
+                //* fight the writer: every keystroke writes flags.json, the
+                //* file watcher reloads, and the bound text is reassigned
+                //* under the cursor. It only looked stable because the value
+                //* round-tripped to the same string. Half-typed paths are
+                //* written and persisted as you go, so an abandoned edit is
+                //* indistinguishable from a committed one.
                 text: Flags.lockAvatarPath
-                placeholderText: "~/.face"
-                onTextChanged: Flags.lockAvatarPath = text
-                width: 180 * root.s
+                placeholderText: root.avatarPlaceholder
+                selectByMouse: true
+                onEditingFinished: root.commitAvatar(text)
+                //* Escape abandons the edit and puts the stored value back.
+                Keys.onPressed: (e) => {
+                    if (e.key === Qt.Key_Escape) {
+                        text = Flags.lockAvatarPath;
+                        e.accepted = true;
+                    } else if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter) {
+                        root.commitAvatar(text);
+                        e.accepted = true;
+                    }
+                }
+            }
+
+            //* "Browse" opens a file manager at the current path so you can
+            //* navigate to the image. It cannot hand the selection back — see
+            //* browseAvatar(). The field stays the source of truth.
+            Label {
+                id: browseLabel
+                text: "browse"
+                font.family: Theme.font
+                font.pixelSize: 11 * root.s
+                color: browseMouse.containsMouse ? Theme.accent : Theme.dim
+
+                MouseArea {
+                    id: browseMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.browseAvatar()
+                }
             }
         }
 
