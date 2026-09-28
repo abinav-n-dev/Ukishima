@@ -107,8 +107,12 @@ Rectangle {
     property int captureWaitMs: 4000
     property int captureWaited: 0
     //* Set once the capture is attached, so grimShot can fade up over the
-    //* wallpaper instead of popping in.
+    //* backdrop instead of popping in.
     property bool grimFaded: false
+    //* True while still waiting on the concurrent grim. Distinguishes "not
+    //* here yet" from "never going to arrive", so the wallpaper is only used
+    //* as a last resort.
+    property bool capturePending: true
 
     //* Try to attach the capture, retrying until it decodes.
     //*
@@ -134,16 +138,20 @@ Rectangle {
         if (grimShot.status === Image.Ready) {
             grimPoll.stop();
             grimFaded = true;
+            capturePending = false;
             console.log("[lock] capture attached after " + captureWaited + "ms (attempt " + grimVersion + ")");
             reportCapture("attached");
             return;
         }
         // Not decodable yet. Clear it so the next tick makes a genuinely new
-        // attempt; the backdrop stays on the wallpaper meanwhile.
+        // attempt; the backdrop stays on the plain colour meanwhile.
         grimSource = "";
         captureWaited += grimPoll.interval;
         if (captureWaited >= captureWaitMs) {
             grimPoll.stop();
+            //* Genuinely never arriving, so the wallpaper is now the right
+            //* thing to show.
+            capturePending = false;
             console.log("[lock] capture never decoded after " + captureWaited + "ms -- falling back to the wallpaper");
             reportCapture("timeout");
         }
@@ -568,8 +576,18 @@ Rectangle {
             id: wallpaperShot
 
             anchors.fill: parent
+            //* Only ever a fallback once the capture has actually failed, not
+            //* while it is still being waited on. grim now runs concurrently
+            //* with quickshell's startup, so for the first ~100-300ms of
+            //* every lock grimShot is legitimately not ready yet — and this
+            //* condition was true during exactly that window. The result was
+            //* the wallpaper flashing up for a split second and then being
+            //* covered by the screenshot, which reads as a glitch rather than
+            //* a lock. Wait with the plain backdrop colour instead, and only
+            //* bring the wallpaper in if grim genuinely never produced
+            //* anything.
             visible: root.background === "wallpaper"
-                || (root.background === "capture" && grimShot.status !== Image.Ready && !bgShot.hasContent)
+                || (root.background === "capture" && !root.capturePending && grimShot.status !== Image.Ready && !bgShot.hasContent)
             source: "file://" + root.wallpaperSource
             fillMode: Image.PreserveAspectCrop
             //* Decode at screen resolution, never at the file's native size.
