@@ -42,7 +42,29 @@ if [ -n "$QS_BIN" ] && [ -f "$LOCK_QML" ]; then
         echo "$(date '+%F %T'): quickshell exited 0 — lock released cleanly" >>"$LOG"
         exit 0
     fi
-    echo "$(date '+%F %T'): quickshell exited $rc — locking failed, falling back" >>"$LOG"
+    # rc > 128 means quickshell was killed by a signal, which means it was
+    # ALIVE and holding a session lock when it died. That is not "locking
+    # failed" -- the compositor has already released the lock by the time
+    # the process is gone. Starting a second locker on top of that teardown
+    # is what crashes Hyprland, which is the exact failure the comment at
+    # the top of this script warns about. Let the teardown settle, then
+    # re-lock with hyprlock so the session is not left wide open.
+    if [ $rc -gt 128 ]; then
+        echo "$(date '+%F %T'): quickshell killed by signal $((rc - 128)) -- lock was granted, waiting for teardown" >>"$LOG"
+        sleep 1
+        if command -v hyprctl >/dev/null 2>&1 && ! hyprctl version >/dev/null 2>&1; then
+            echo "$(date '+%F %T'): compositor is gone -- not re-locking" >>"$LOG"
+            exit $rc
+        fi
+        if command -v hyprlock >/dev/null 2>&1; then
+            echo "$(date '+%F %T'): re-locking with hyprlock after clean teardown" >>"$LOG"
+            exec hyprlock
+        fi
+        exit $rc
+    fi
+    # 255 is Quickshell's "failed to load/validate the config". Nothing was
+    # ever locked, so the fallback is the only thing protecting the session.
+    echo "$(date '+%F %T'): quickshell exited $rc -- config never loaded, falling back" >>"$LOG"
 fi
 
 # Never exit without locking: a missing quickshell or a partial checkout
