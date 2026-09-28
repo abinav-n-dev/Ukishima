@@ -43,6 +43,19 @@ QtObject {
     onActiveChanged: if (!active)
         root.clear();
 
+    // A row can leave the list while the nav is sitting on it: the lock's
+    // "Avatar image" row only exists while the avatar is on, so flipping that
+    // toggle shortens `rows` underneath the cursor. kbIndex is then either past
+    // the end — where kbMove would throw on `rows[kbIndex].item` — or pointing
+    // at a row that is simply not on screen, which drags the focus seam down to
+    // a gap in the list. Dropping focus is the honest answer: the thing that
+    // was focused is gone. The next arrow press picks a real row back up.
+    onRowsChanged: {
+        if (root.kbIndex >= root.rows.length
+            || (root.focusRowItem !== null && root.rowIndexOf(root.focusRowItem) < 0))
+            root.clear();
+    }
+
     function clear() {
         root.focusRowItem = null;
         root.kbIndex = -1;
