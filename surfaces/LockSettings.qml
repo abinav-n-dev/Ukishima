@@ -25,6 +25,7 @@ SettingsSurface {
         { item: bgRow, kind: "seg", vals: ["capture", "wallpaper", "solid"], get: function () { return Flags.lockBackground; }, set: function (v) { Flags.lockBackground = v; } },
         { item: blurRow, kind: "seg", vals: [0, 32, 64, 96], get: function () { return Flags.lockBlur; }, set: function (v) { Flags.lockBlur = v; } },
         { item: avatarRow, kind: "toggle", get: function () { return Flags.lockShowAvatar; }, set: function (v) { Flags.lockShowAvatar = v; } },
+        { item: avatarPathRow, kind: "text", get: function () { return Flags.lockAvatarPath; }, set: function (v) { Flags.lockAvatarPath = v; } },
         { item: wifiRow, kind: "toggle", get: function () { return Flags.lockShowWifi; }, set: function (v) { Flags.lockShowWifi = v; } },
         { item: batteryRow, kind: "toggle", get: function () { return Flags.lockShowBattery; }, set: function (v) { Flags.lockShowBattery = v; } }
     ]
@@ -112,6 +113,21 @@ SettingsSurface {
                 s: root.s
                 on: Flags.lockShowAvatar
                 onToggled: Flags.lockShowAvatar = !Flags.lockShowAvatar
+            }
+        }
+
+        SettingsRow {
+            id: avatarPathRow
+            surface: root
+            name: "Avatar path"
+            icon: "image"
+            sub: "Leave empty for ~/.face"
+
+            TextField {
+                text: Flags.lockAvatarPath
+                placeholderText: "~/.face"
+                onTextChanged: Flags.lockAvatarPath = text
+                width: 180 * root.s
             }
         }
 

@@ -17,10 +17,11 @@ Rectangle {
     required property var lockSurface
     readonly property string home: Quickshell.env("HOME")
     readonly property string userName: context.userName
-    readonly property string facePath: home + "/.face"
+    property string avatarPath: ""
+    readonly property string facePath: avatarPath.length > 0 ? avatarPath : (home + "/.face")
     // grim pre-capture from lock.sh (hyprlock screenshot equivalent),
     // then live ukishima wallpaper, then static fallback
-    readonly property string lockShot: "/tmp/ukishima-lock.png"
+    readonly property string lockShot: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/ukishima/lock-shot.png"
     readonly property string stateWallpaper: (Quickshell.env("XDG_STATE_HOME") || (home + "/.local/state")) + "/ukishima-wallpaper"
     readonly property string wallpaperFallback: home + "/Pictures/Wallpapers/current_wallpaper.jpg"
     //* The wallpaper the shell is actually showing, read from the same state
@@ -44,16 +45,6 @@ Rectangle {
             + " fallbackUsed=" + (currentWallpaper.length === 0));
     }
 
-    // Shuffled dot-morph queue, like polkit's shapeQueue: each typed char
-    // pops in as a random shape then settles into a dot.
-    readonly property list<int> shapeQueue: {
-        const shapes = [LockShape.ShapeType.Slanted, LockShape.ShapeType.Arch, LockShape.ShapeType.Fan, LockShape.ShapeType.Arrow, LockShape.ShapeType.SemiCircle, LockShape.ShapeType.Triangle, LockShape.ShapeType.Diamond, LockShape.ShapeType.ClamShell, LockShape.ShapeType.Pentagon, LockShape.ShapeType.Gem, LockShape.ShapeType.Sunny, LockShape.ShapeType.VerySunny, LockShape.ShapeType.Cookie4Sided, LockShape.ShapeType.Ghostish, LockShape.ShapeType.SoftBurst];
-        for (let i = shapes.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shapes[i], shapes[j]] = [shapes[j], shapes[i]];
-        }
-        return shapes;
-    }
     readonly property bool fieldInError: context.showFailure
     //* Clock format follows the desktop General setting (DisplaySurface timeRow
     //* -> Flags.time12h), and the lock battery shimmer follows the Battery
@@ -95,6 +86,9 @@ Rectangle {
             if (shared && typeof shared.lockBlur === "number")
                 root.blurMax = shared.lockBlur;
 
+            if (shared && typeof shared.lockAvatarPath === "string")
+                root.avatarPath = shared.lockAvatarPath;
+
             if (shared && ["capture", "wallpaper", "solid"].indexOf(shared.lockBackground) >= 0)
                 root.background = shared.lockBackground;
         } catch (e) {
@@ -118,6 +112,7 @@ Rectangle {
             root.showBattery = true;
             root.blurMax = 64;
             root.background = "capture";
+            root.avatarPath = "";
         }
     }
 
@@ -494,18 +489,15 @@ Rectangle {
 
         implicitHeight: dotList.implicitHeight
 
-        ListView.onRemove: {
-            initAnim.stop();
-            removeAnim.start();
-        }
-
-        LockShape {
-            id: dotShape
+        Rectangle {
+            id: dotRect
 
             anchors.centerIn: parent
-            implicitSize: dotList.implicitHeight * 1.5
-            shapeType: root.shapeQueue[dot.index % root.shapeQueue.length] ?? LockShape.ShapeType.Circle
-            shapeColor: "#ffffff"
+            width: dotList.implicitHeight * 1.2
+            height: dotList.implicitHeight * 1.2
+            radius: width / 2
+            color: "#ffffff"
+            opacity: 0
 
             SequentialAnimation {
                 id: initAnim
@@ -514,7 +506,7 @@ Rectangle {
 
                 ParallelAnimation {
                     NumberAnimation {
-                        target: dotShape
+                        target: dotRect
                         property: "opacity"
                         from: 0
                         to: 1
@@ -522,7 +514,7 @@ Rectangle {
                         easing.type: Easing.OutCubic
                     }
                     NumberAnimation {
-                        target: dotShape
+                        target: dotRect
                         property: "scale"
                         from: 0
                         to: 1
@@ -537,23 +529,13 @@ Rectangle {
                         duration: 160
                         easing.type: Easing.OutCubic
                     }
-                    PropertyAction {
-                        target: dot
-                        property: "nonAnimWidthScale"
-                        value: 1.5
-                    }
                 }
                 PauseAnimation {
                     duration: 170
                 }
-                PropertyAction {
-                    target: dotShape
-                    property: "shape"
-                    value: LockShape.ShapeType.Circle
-                }
                 ParallelAnimation {
                     NumberAnimation {
-                        target: dotShape
+                        target: dotRect
                         property: "scale"
                         to: 2 / 3
                         duration: 180
@@ -565,11 +547,6 @@ Rectangle {
                         to: dotList.implicitHeight
                         duration: 160
                         easing.type: Easing.OutCubic
-                    }
-                    PropertyAction {
-                        target: dot
-                        property: "nonAnimWidthScale"
-                        value: 1
                     }
                 }
             }
@@ -584,14 +561,14 @@ Rectangle {
                 }
                 ParallelAnimation {
                     NumberAnimation {
-                        target: dotShape
+                        target: dotRect
                         property: "opacity"
                         to: 0
                         duration: 130
                         easing.type: Easing.InCubic
                     }
                     NumberAnimation {
-                        target: dotShape
+                        target: dotRect
                         property: "scale"
                         to: 0.5
                         duration: 130
@@ -650,7 +627,7 @@ Rectangle {
 
                     anchors.centerIn: parent
                     visible: faceImg.status === Image.Error
-                    text: ""
+                    text: ""
                     color: "#d8d8d8"
                     font.pointSize: 20
                 }
@@ -899,24 +876,25 @@ Rectangle {
                     Layout.alignment: Qt.AlignVCenter
                     visible: !context.unlockInProgress
 
-                    LockShape {
+                    Rectangle {
+                        id: enterCircle
+
                         anchors.fill: parent
-                        shapeColor: context.currentText.length > 0 ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(1, 1, 1, 0.22)
-                        shapeType: context.currentText.length > 0 ? LockShape.ShapeType.Arrow : LockShape.ShapeType.Circle
+                        radius: width / 2
+                        color: context.currentText.length > 0 ? Qt.rgba(1, 1, 1, 0.92) : Qt.rgba(1, 1, 1, 0.22)
                         scale: context.currentText.length === 0 ? 0.62 : enterMouse.pressed ? 0.6 : enterMouse.containsMouse ? 0.8 : 0.7
-                        rotation: 90
+
+                        Behavior on color {
+                            ColorAnimation {
+                                duration: 200
+                            }
+
+                        }
 
                         Behavior on scale {
                             NumberAnimation {
                                 duration: 160
                                 easing.type: Easing.OutCubic
-                            }
-
-                        }
-
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: 200
                             }
 
                         }
@@ -932,6 +910,7 @@ Rectangle {
                                     context.tryUnlock();
 
                             }
+
                         }
 
                     }
