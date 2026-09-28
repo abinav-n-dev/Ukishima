@@ -148,6 +148,20 @@
       "nudge": true
     },
     {
+      "id": "hyprlock",
+      "check": { "bin": "hyprlock" },
+      "pkg": ["hyprlock"],
+      "why": "the default lock backend — without it the lock falls back to the built-in Quickshell one, and the LOCK settings surface hides the option",
+      "nudge": true
+    },
+    {
+      "id": "grim",
+      "check": { "bin": "grim" },
+      "pkg": ["grim"],
+      "why": "the screen capture behind the lock's capture backdrop — without it that backdrop falls back to the wallpaper",
+      "nudge": true
+    },
+    {
       "id": "kitty",
       "check": { "bin": "kitty" },
       "pkg": ["kitty"],
