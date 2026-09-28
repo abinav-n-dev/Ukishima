@@ -741,75 +741,67 @@ Rectangle {
         visible: root.showWifi && wifiDev !== null
     }
 
-    // per-char morphing dot, ported from polkit CharItem:
-    // each keystroke pops in as a random shape, settles into a dot
+    // per-keystroke password dot
+    //
+    // This was a port of polkit's CharItem, and it was far too busy. Sampled
+    // off a real keystroke, one dot ran 570ms: an OutBack spring overshot to
+    // 1.085, the dot then sat frozen at 1.000 for 170ms (a bare PauseAnimation
+    // in the middle of the sequence), and it finally shrank to 0.667 and
+    // *stayed* there. Its width animated 15.6 -> 12.0 on top of that. Type a
+    // password at speed and five dots are mid-cycle simultaneously, sitting at
+    // three different scales, with the older ones visibly smaller than the
+    // new one.
+    //
+    // Now one keystroke is one ramp: opacity 0 -> 1 and scale 0.6 -> 1, both
+    // OutCubic over 130ms. No overshoot, no pause, no second motion on the
+    // width, and it settles at 1.0 rather than 2/3.
+    //
+    // The rect is 0.8 * implicitHeight where it used to be 1.2 *, which is
+    // what keeps the resting size identical: 1.2 * 2/3 == 0.8, so a dot is
+    // still exactly 9.6px once the animation ends. Without that the move to
+    // scale 1.0 would have silently grown every resting dot by 50%.
     component DotItem: Item {
         id: dot
 
         required property int index
-        property real nonAnimWidthScale: 1
 
+        //* Static, and 1.0 * implicitHeight, which is what the old animation
+        //* settled on — so row spacing is unchanged. Animating a layout
+        //* property also had the ListView re-flowing under the animation.
+        implicitWidth: dotList.implicitHeight
         implicitHeight: dotList.implicitHeight
 
         Rectangle {
             id: dotRect
 
             anchors.centerIn: parent
-            width: dotList.implicitHeight * 1.2
-            height: dotList.implicitHeight * 1.2
+            width: dotList.implicitHeight * 0.8
+            height: dotList.implicitHeight * 0.8
             radius: width / 2
             color: "#ffffff"
             opacity: 0
+            scale: 0.6
 
-            SequentialAnimation {
+            ParallelAnimation {
                 id: initAnim
 
                 running: true
 
-                ParallelAnimation {
-                    NumberAnimation {
-                        target: dotRect
-                        property: "opacity"
-                        from: 0
-                        to: 1
-                        duration: 140
-                        easing.type: Easing.OutCubic
-                    }
-                    NumberAnimation {
-                        target: dotRect
-                        property: "scale"
-                        from: 0
-                        to: 1
-                        duration: 220
-                        easing.type: Easing.OutBack
-                    }
-                    NumberAnimation {
-                        target: dot
-                        property: "implicitWidth"
-                        from: dotList.implicitHeight
-                        to: dotList.implicitHeight * 1.3
-                        duration: 160
-                        easing.type: Easing.OutCubic
-                    }
+                NumberAnimation {
+                    target: dotRect
+                    property: "opacity"
+                    from: 0
+                    to: 1
+                    duration: 130
+                    easing.type: Easing.OutCubic
                 }
-                PauseAnimation {
-                    duration: 170
-                }
-                ParallelAnimation {
-                    NumberAnimation {
-                        target: dotRect
-                        property: "scale"
-                        to: 2 / 3
-                        duration: 180
-                        easing.type: Easing.OutCubic
-                    }
-                    NumberAnimation {
-                        target: dot
-                        property: "implicitWidth"
-                        to: dotList.implicitHeight
-                        duration: 160
-                        easing.type: Easing.OutCubic
-                    }
+                NumberAnimation {
+                    target: dotRect
+                    property: "scale"
+                    from: 0.6
+                    to: 1
+                    duration: 130
+                    easing.type: Easing.OutCubic
                 }
             }
 
