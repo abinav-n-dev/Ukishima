@@ -18,12 +18,17 @@ rm -rf "$CONF/quickshell/ukishima"
 
 # State: flags, events, gamemode snapshot, wallpaper selection.
 rm -rf "$STATE/ukishima"
-rm -f  "$STATE/ukishima-wallpaper-dir"
-rm -f  "$STATE/ukishima-wallpaper"
-rm -f  "$STATE/ukishima-wallpaper-map"
-rm -f  "$STATE/ukishima-wallpaper-bag"
-rm -f  "$STATE/ukishima-wallpaper-fit"
-rm -f  "$STATE/ukishima-wallpaper-still.png"
+
+# Wallpaper state lives in siblings of that dir, one file per setting, and the
+# set keeps growing — a .lock file for the bag was missed when the list was
+# maintained by hand. Match the prefix instead of enumerating, so a new file is
+# covered the moment it is added rather than after someone notices it survived
+# an uninstall. Quoted glob: no match must stay a no-op, not a literal rm of
+# "$STATE/ukishima-wallpaper*".
+for f in "$STATE"/ukishima-wallpaper*; do
+  [ -e "$f" ] || continue
+  rm -rf "$f"
+done
 
 # Cache: weather, rec thumbs, wallpaper + clipboard previews, dynamic
 # colors — all under the single ~/.cache/ukishima root. The scattered legacy
