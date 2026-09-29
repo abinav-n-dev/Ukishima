@@ -54,8 +54,9 @@ Singleton {
      * an in-surface enable.
      */
     property int profile: PowerProfile.Balanced
-    readonly property bool powerSaver: root.profile === PowerProfile.PowerSaver
-    readonly property bool performance: root.profile === PowerProfile.Performance
+    //* No powerSaver/performance booleans beside this: the picker passes
+    //* `profile` straight to SettingsSeg, which matches it against the
+    //* PowerProfile values in its own options list. Nothing read them.
     property bool hasPerformance: true
     property bool _ppAttached: false
 

@@ -23,8 +23,10 @@ import Quickshell.Io
  *
  * The write path is worth restoring the moment a page needs it, and this is the
  * shape it had: the whole file is regenerated from `list`, the write goes through
- * an atomic FileView, `onSaved` fires a debounced reload so Hyprland re-reads it,
- * and key clashes are checked against both `list` and binds.lua (`Binds.inUse`).
+ * an atomic FileView, and `onSaved` fires a debounced reload so Hyprland re-reads
+ * it. Key clashes were checked against both `list` and binds.lua; the parser for
+ * that lua used to live in `lib/binds.js`, and it went with the Keybinds surface
+ * it belonged to, so a restored writer needs its own clash check or none.
  * What was removed is the mechanism, not the design.
  */
 Singleton {
