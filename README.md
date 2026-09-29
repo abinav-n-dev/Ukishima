@@ -52,7 +52,25 @@ Clones to `~/.local/share/quickshell/ukishima`, checks dependencies, and prints 
   bind = SUPER, slash,   exec, qs -p ~/.local/share/quickshell/ukishima ipc call ukishima launcher ""
   ```
 
-  Other handlers (Lua works the same, via `hl.dsp.exec_cmd`): mixer, calendar, media, power, battery, sysmon, recorder, gameMode, peek, hide, page …
+  ```lua
+  hl.bind(var_mainMod .. " + SHIFT + W", hl.dsp.exec_cmd("qs -p ~/.local/share/quickshell/ukishima ipc call ukishima wallpaper \"\""))
+  hl.bind(var_mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("qs -p ~/.local/share/quickshell/ukishima ipc call ukishima clipboard \"\""))
+  hl.bind(var_mainMod .. " + slash",     hl.dsp.exec_cmd("qs -p ~/.local/share/quickshell/ukishima ipc call ukishima launcher \"\""))
+  ```
+
+  Other handlers: mixer, calendar, media, power, battery, sysmon, recorder, gameMode, peek, hide, page …
+
+- **Lock** is a script rather than an IPC surface, so it gets its own bind:
+
+  ```conf
+  bind = SUPER, L, exec, ~/.local/share/quickshell/ukishima/scripts/lock.sh
+  ```
+
+  ```lua
+  hl.bind(var_mainMod .. " + L", hl.dsp.exec_cmd("/home/username/.local/share/quickshell/ukishima/scripts/lock.sh"))
+  ```
+
+  It uses `hyprlock` if you have it, otherwise its own Quickshell lockscreen — set the backend under **Lock** in settings. Point it at your own `hyprlock.conf` if you'd rather configure the lock your own way.
 
 - **Uninstall**:
 

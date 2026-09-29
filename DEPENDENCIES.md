@@ -1,25 +1,10 @@
 # Dependencies
 
-The list lives in [`dependencies.json`](dependencies.json) at the repo root, which
-`remote-install.sh` and `scripts/check-deps.sh` both read. The tables below are a
-rendering of it.
+Arch names, unless noted.
 
-## Checking what you have
+## Required
 
-```sh
-scripts/check-deps.sh          # what is missing; exits 1 if something required is
-scripts/check-deps.sh --all    # also list missing optional dependencies
-scripts/check-deps.sh --page   # write a full HTML report and open it
-```
-
-`--json` prints a single line of JSON, which is what the in-app check under
-**Appearance → Update** reads, so the pill and the terminal always agree. The
-report is opened at most once per distinct set of missing required dependencies,
-so something you have not installed yet stays quiet across restarts.
-
-## Core
-
-Missing any of these breaks a feature the shell is expected to have.
+Install these or the shell starts but breaks in places.
 
 | Tool | Package | Used for |
 | --- | --- | --- |
@@ -39,11 +24,10 @@ Missing any of these breaks a feature the shell is expected to have.
 | `cliphist + wl-paste` | `cliphist`, `wl-clipboard` | the clipboard history surface |
 | `slurp` | `slurp` | the window/region picker for screen recording |
 
-## Optional, for full functionality
+## Optional
 
-These only add features. Nothing breaks without them, and nothing here is
-reported after an update. The first few are also named by the installer when it
-runs, because they are commonly wanted.
+None of these are needed to run the shell. They add features, so install the
+ones you actually want.
 
 | Package | Adds |
 | --- | --- |
@@ -52,8 +36,8 @@ runs, because they are commonly wanted.
 | `matugen` | Material base16 palettes (always-dark terminal theme, dynamic wallpaper palette) |
 | `ddcutil` | monitor brightness via DDC (external display faders) |
 | `kdialog` / `zenity` | the native folder picker for the record output directory |
-| `power-profiles-daemon` | the power-profile picker on the battery hover — the row shows "Not installed" without it, and it isn't needed on desktops. Checked as a *running unit*, not a binary |
-| `hyprlock` | the default lock backend — without it the lock falls back to the built-in Quickshell one, and the LOCK settings surface hides the option |
+| `power-profiles-daemon` | the power-profile picker on the battery hover — the row shows "Not installed" without it, and it isn't needed on desktops |
+| `hyprlock` | the lock backend the shell prefers — without it the lock falls back to the Quickshell lockscreen, which has its own background, blur, avatar and indicator settings |
 | `grim` | the screen capture behind the lock's capture backdrop — without it that backdrop falls back to the wallpaper |
 | `kitty` | live terminal palette reload via `kitty @ set-colors` (needs `allow_remote_control yes`, and `include ~/.cache/ukishima/kitty-colors` for persistence) |
 | `ghostty` | live terminal palette reload over D-Bus |
