@@ -76,7 +76,19 @@ opts_for_fit() {
 
 ensure_daemon() {
     awww query >/dev/null 2>&1 && return 0
-    local attempt i
+    # Give a daemon the session started itself a moment to answer before
+    # concluding there is none. The install docs put `exec-once = awww-daemon`
+    # next to the shell's own exec-once, so both are spawned at compositor
+    # start: if the daemon is still binding its socket when the shell first asks,
+    # spawning our own races it for the same socket, and awww-daemon aborts on a
+    # failed connect rather than declining politely. Waiting costs a second only
+    # when nothing is running at all, which is the case that has to start one.
+    local i
+    for i in $(seq 1 5); do
+        sleep 0.2
+        awww query >/dev/null 2>&1 && return 0
+    done
+    local attempt
     for attempt in 1 2 3 4 5; do
         awww-daemon >/dev/null 2>&1 &
         for i in $(seq 1 15); do

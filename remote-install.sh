@@ -47,6 +47,10 @@ Add these to your Hyprland config:
   Auto-launch (lower-memory launcher):
     exec-once = %s/launch.sh
 
+  Wallpaper daemon — start it here rather than letting the shell start it, so
+  it is already up when the shell restores your wallpaper (no ~1s delay):
+    exec-once = awww-daemon
+
   Keybinds (hyprlang):
     bind = SUPER, SHIFT+W, exec, %s ipc call ukishima wallpaper ""
     bind = SUPER, SHIFT+V, exec, %s ipc call ukishima clipboard ""

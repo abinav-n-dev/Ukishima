@@ -44,6 +44,8 @@ Clones to `~/.local/share/quickshell/ukishima`, checks dependencies, and prints 
 
   (Lua: `hl.exec_cmd("~/.local/share/quickshell/ukishima/launch.sh")`)
 
+- **Wallpaper daemon** — `exec-once = awww-daemon` beside the launch line, so the wallpaper is painted without waiting on the daemon to come up.
+
 - **Keybinds** — every surface answers over quickshell IPC (target `ukishima`; empty monitor arg = focused):
 
   ```conf
