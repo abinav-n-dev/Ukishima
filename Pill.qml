@@ -44,10 +44,10 @@ Item {
     /**
      * Idle (ms) before a closed surface is unloaded, keyed by surface name,
      * scaled from the Flags.unloadSec base (`unloadS` here). The two heaviest
-     * surfaces (wallpaper, mixer) keep the shortest tail; everything else gets
-     * one 60s reset for quick re-toggles before it is reclaimed, so a session
-     * that touched every surface returns near boot RSS within a couple of
-     * minutes. Unlisted names fall through to that same short default.
+     * surfaces (wallpaper, mixer) keep the shortest tail, the four thirstiest
+     * frequent fliers get one generous reset, and everything else — which is
+     * every settings sub-surface — drops at the base rather than double it, so
+     * walking the whole settings tree costs one tier instead of two.
      */
     readonly property real unloadS: (Flags.memorySaver ? Math.max(10, Flags.unloadSec) : 1e12)
     readonly property var unloadIdleMs: ({
@@ -59,9 +59,25 @@ Item {
         media:       unloadS * 2 * 1000,
         recorder:    unloadS * 2 * 1000,
         calendar:    unloadS * 2 * 1000,
-        // everything else: a single 60s reset for quick re-toggles, then reclaim
-        default:     unloadS * 2 * 1000
+        // everything else: the base tier, so a settings sweep releases as it goes
+        default:     unloadS * 1000
     })
+
+    /**
+     * Ceiling on how many closed surfaces may stay resident at once. Every tier
+     * countdown is independent, so sweeping the whole settings tree in a few
+     * seconds used to leave every page it touched alive until its own tail ran
+     * out — the burst outruns the countdown it is racing. Past this many, the
+     * longest-waiting surface is reclaimed on the next sweep whatever tier it is
+     * on. Four covers the re-toggle burst the tail exists for (close a page, hop
+     * to another, hop back) without letting a full sweep accumulate.
+     *
+     * This is a bound, not a large saving. A settings page measures around
+     * 0.4 MiB each once its fonts are mapped, so the cap trims a few MiB off a
+     * fast sweep; the memory a surface sweep used to appear to cost was almost
+     * entirely the one-time font mapping behind it (see Theme.fontJpWeight).
+     */
+    readonly property int unloadKeepMax: 4
 
     /**
      * Every surface that has stopped being open, keyed by surface name, with
@@ -492,9 +508,26 @@ Item {
     }
 
     /**
+     * Reclaim one closed surface: tear its loader down and forget the countdown.
+     * Returns whether a live loader was actually dropped, so callers can tell a
+     * real teardown (worth a GC) from a name that was already inert.
+     */
+    function dropClosed(name) {
+        const fn = pill.loaders[name];
+        const ld = fn ? fn() : null;
+        const wasLive = !!(ld && ld.active);
+        if (wasLive)
+            ld.active = false;
+        delete pill.closedAt[name];
+        return wasLive;
+    }
+
+    /**
      * Periodic sweep. Each closed surface carries its own timestamp, so every
      * one is dropped independently once its own tier has elapsed; unloading one
-     * never shortens or lengthens another's countdown.
+     * never shortens or lengthens another's countdown. The list is walked
+     * oldest-first so `unloadKeepMax` evicts the surface that has waited longest,
+     * which is the one whose remaining tail buys the least.
      */
     Timer {
         id: sweepTimer
@@ -504,18 +537,15 @@ Item {
         onTriggered: {
             var now = Date.now();
             var names = Object.keys(pill.closedAt);
+            names.sort(function (a, b) { return pill.closedAt[a] - pill.closedAt[b]; });
             var keeps = false;
             var dropped = false;
             for (var i = 0; i < names.length; i++) {
-                var name = names[i];
-                if (now - pill.closedAt[name] >= pill.idleFor(name)) {
-                    const fn = pill.loaders[name];
-                    const ld = fn ? fn() : null;
-                    if (ld && ld.active) {
-                        ld.active = false;
+                const name = names[i];
+                // over the cap, or past its own tier: reclaim
+                if (i >= pill.unloadKeepMax || now - pill.closedAt[name] >= pill.idleFor(name)) {
+                    if (pill.dropClosed(name))
                         dropped = true;
-                    }
-                    delete pill.closedAt[name];
                 } else {
                     keeps = true;
                 }
@@ -547,13 +577,8 @@ Item {
         var names = Object.keys(pill.closedAt);
         var dropped = false;
         for (var i = 0; i < names.length; i++) {
-            const fn = pill.loaders[names[i]];
-            const ld = fn ? fn() : null;
-            if (ld && ld.active) {
-                ld.active = false;
+            if (pill.dropClosed(names[i]))
                 dropped = true;
-            }
-            delete pill.closedAt[names[i]];
         }
         sweepTimer.stop();
         if (dropped)
