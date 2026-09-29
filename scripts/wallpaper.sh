@@ -125,6 +125,25 @@ pop_bag() {
     ) 9>"$BAG.lock"
 }
 
+# True when the daemon is up AND already painting something. init needs this to
+# tell a healthy screen apart from an empty one: both answer `awww query`
+# successfully, so the old daemon_was_running test could not. A fresh login is
+# the case that matters — Hyprland starts awww-daemon at session start with no
+# image set, so the daemon is up, the desktop is black, and "restore" was being
+# skipped as unnecessary. jq answers it precisely; the grep fallback keeps it
+# right on a box without jq.
+daemon_painted() {
+    local js
+    js=$(awww query -j 2>/dev/null) || return 1
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$js" \
+            | jq -e '[ .[]?[]?.displaying?.image? | select(type == "string" and length > 0) ] | length > 0' \
+            >/dev/null 2>&1
+        return $?
+    fi
+    printf '%s' "$js" | grep -qE '"image"[[:space:]]*:[[:space:]]*"[^"]+"'
+}
+
 outputs() {
     hyprctl monitors -j 2>/dev/null | jq -r '.[].name'
 }
@@ -370,6 +389,17 @@ if [ "$cmd" = "init" ]; then
     if [ "$daemon_was_running" = true ]; then
         if map_has_video && ! mpv_running; then
             sync_videos
+        fi
+        # Up is not the same as painted. When the daemon came up empty, put the
+        # recorded wallpaper back; the old check only ever restored a daemon
+        # that was down, which a session-managed one never is at this point.
+        # Gated on a wallpaper actually being on record: with nothing recorded
+        # there is nothing to restore, and restore_all would otherwise reach for
+        # the bag and paint a random pick nobody asked for. When the daemon
+        # already shows the right image this is skipped, so reloading the shell
+        # never replays the wave transition over a correct desktop.
+        if { [ -s "$STATE" ] || [ -s "$MAP" ]; } && ! daemon_painted; then
+            restore_all
         fi
         exit 0
     fi

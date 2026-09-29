@@ -94,6 +94,28 @@ ShellRoot {
         Devices.restore();
         void GameMode.active;
         root.battCheck();
+        wallpaperBootProc.running = true;
+    }
+
+    /**
+     * Boot wallpaper restore. Hyprland starts awww-daemon at login, but a daemon
+     * that has just come up has no image set, so the desktop came back black
+     * after every reboot even though the state file and the per-output map were
+     * written correctly the whole time — nothing ever read them back at startup.
+     * This fires from the shell root rather than from the Walls singleton on
+     * purpose: a `pragma Singleton` is only constructed the first time something
+     * references it, and the only referencers are the wallpaper strip, the theme
+     * settings page and the lock surface, all of which are loaded on demand. In
+     * the singleton that hook would not run until the strip was first opened,
+     * which is exactly the thing being fixed.
+     *
+     * wallpaper.sh init re-applies the recorded wallpaper only when the daemon is
+     * painting nothing, so a plain shell restart against a correct desktop stays
+     * silent instead of replaying the transition over it.
+     */
+    Process {
+        id: wallpaperBootProc
+        command: ["bash", Config.hyprPath("scripts", "wallpaper.sh"), "init"]
     }
 
     Process {
