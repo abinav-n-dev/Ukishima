@@ -69,10 +69,36 @@ SettingsSurface {
     readonly property var methodValue:
         (methodValues.indexOf(Flags.lockMethod) >= 0) ? Flags.lockMethod : methodValues[0]
 
-    /** Says why the option is missing, instead of silently showing one pill. */
-    readonly property string methodSub: hyprlockAvailable
-        ? "Quickshell lockscreen or plain hyprlock"
-        : "Quickshell lockscreen — hyprlock is not installed"
+    /**
+     * True when the Quickshell lockscreen is what will actually run, which is
+     * the only case where the presentation settings below have anything to
+     * configure. Keyed on `methodValue`, not `Flags.lockMethod`: a flag left on
+     * "hyprlock" on a machine without hyprlock displays as quickshell and
+     * lock.sh downgrades to it, so those settings are live and must be
+     * reachable. Gating on the raw flag would hide settings that do work.
+     */
+    readonly property bool quickshellLock: methodValue === "quickshell"
+
+    /**
+     * Says why the option is missing, instead of silently showing one pill.
+     *
+     * It also names which lock is actually in charge, because everything below
+     * the method row belongs to the Quickshell lock and disappears when hyprlock
+     * is picked — and rows vanishing with no explanation read as broken rather
+     * than inapplicable. The stored values are untouched and come straight back
+     * on switching methods, so nothing has actually been lost.
+     *
+     * Kept short on purpose. avatarSub below carries the same warning: a sub
+     * long enough to wrap takes the row from one line to two and moves every
+     * row under it.
+     */
+    readonly property string methodSub: {
+        if (!hyprlockAvailable)
+            return "Quickshell lockscreen — hyprlock is not installed";
+        if (!root.quickshellLock)
+            return "Uses your hyprlock.conf";
+        return "Uses the Quickshell lockscreen";
+    }
 
     // ── Avatar path helpers ────────────────────────────────────────────
     //
@@ -184,10 +210,20 @@ SettingsSurface {
     // hostage: the user is typing into something they cannot see. Abandon it —
     // the flag was never touched, so there is nothing to roll back, and the
     // next Return goes to the pill again.
+    //
+    // Switching to hyprlock does the same thing to that row as the toggle does,
+    // by a different route, and it is the same failure: the field is focused,
+    // the row is gone, and the keystrokes have nowhere to go. Handled here
+    // rather than by watching `editing`, because `editing` is a local property
+    // and nothing about closing the surface would ever set it.
     Connections {
         target: Flags
         function onLockShowAvatarChanged() {
             if (!Flags.lockShowAvatar && avatarPathRow.editing)
+                root.endAvatarEdit(false, "");
+        }
+        function onLockMethodChanged() {
+            if (!root.quickshellLock && avatarPathRow.editing)
                 root.endAvatarEdit(false, "");
         }
     }
@@ -218,9 +254,18 @@ SettingsSurface {
      * Measured: with the avatar off, idx=4 focused "Avatar image" while its
      * visible was false. Filtering here keeps one source of truth — the column,
      * which is what the eye reads — and hands the nav only what is reachable.
+     *
+     * `void root.quickshellLock` is load-bearing, not decoration. This is a
+     * plain var rebuilt by iterating rows and reading each `item.visible`, and
+     * the loop body never mentions lockMethod, so without that statement QML
+     * has no dependency on the flag and the list is computed once and never
+     * again. Switching to hyprlock would then hide five rows on screen while
+     * the keyboard still walked them — the exact failure this filter exists to
+     * prevent, reintroduced through the back door.
      */
     readonly property var visibleRows: {
         void Flags.lockShowAvatar;
+        void root.quickshellLock;
         const out = [];
         for (const r of root.allRows) {
             if (r.item && r.item.visible !== false)
@@ -246,7 +291,6 @@ SettingsSurface {
         }
 
         Item { width: 1; height: 12 * root.s }
-
         SettingsRow {
             id: methodRow
             surface: root
@@ -276,6 +320,11 @@ SettingsSurface {
             surface: root
             name: "Background"
             icon: "wallpaper"
+            //* The backdrop is drawn by LockSurface, which only exists under the
+            //* Quickshell lock. hyprlock paints whatever its own config says, so
+            //* this setting is not merely ignored there — there is no code on
+            //* that path that could read it.
+            visible: root.quickshellLock
 
             SettingsSeg {
                 s: root.s
@@ -305,9 +354,15 @@ SettingsSurface {
             //* control the mouse refuses to touch. Out of the list means out
             //* of reach by both.
             //*
+            //* The quickshellLock half is what keeps this from outliving
+            //* bgRow: `lockBackground` keeps its stored value while the row is
+            //* hidden, so gating on "capture" alone would leave a Blur row
+            //* stranded under the method row with no Background above it once
+            //* hyprlock is selected.
+            //*
             //* The stored value is untouched, so switching back to capture
             //* finds the blur level you had rather than a default.
-            visible: Flags.lockBackground === "capture"
+            visible: root.quickshellLock && Flags.lockBackground === "capture"
 
             SettingsSeg {
                 s: root.s
@@ -327,6 +382,8 @@ SettingsSurface {
             surface: root
             name: "Avatar"
             icon: "dot"
+            //* LockSurface's, not hyprlock's. Same reasoning as bgRow.
+            visible: root.quickshellLock
 
             LinkToggle {
                 s: root.s
@@ -349,7 +406,8 @@ SettingsSurface {
             icon: "wallpaper"
             //* Pointless while the avatar is off — the lock draws nothing, so
             //* a path field here is editing a setting that has no effect.
-            visible: Flags.lockShowAvatar
+            //* And pointless under hyprlock, which draws no avatar at all.
+            visible: root.quickshellLock && Flags.lockShowAvatar
             //* While editing, the sub explains how to get out of the field,
             //* the same way the wallpaper folder row does. At rest it reports
             //* the one thing the box cannot: whether the path resolved, and
@@ -429,6 +487,9 @@ SettingsSurface {
             surface: root
             name: "Wifi indicator"
             icon: "wifi"
+            //* Drawn by LockSurface. hyprlock shows its own indicators from
+            //* hyprlock.conf.
+            visible: root.quickshellLock
 
             LinkToggle {
                 s: root.s
@@ -442,6 +503,8 @@ SettingsSurface {
             surface: root
             name: "Battery indicator"
             icon: "bolt"
+            //* LockSurface's, same as wifiRow.
+            visible: root.quickshellLock
 
             LinkToggle {
                 s: root.s
