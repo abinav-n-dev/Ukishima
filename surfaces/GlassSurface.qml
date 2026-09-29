@@ -36,8 +36,7 @@ SettingsSurface {
             showBack: true
         }
 
-        Item { width: 1; height: 12 * root.s }
-
+Item { width: 1; height: 10 * root.s }
         SettingsRow {
             id: glassRow
             surface: root

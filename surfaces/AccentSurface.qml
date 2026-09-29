@@ -95,8 +95,7 @@ SettingsSurface {
             showBack: true
         }
 
-        Item { width: 1; height: 12 * root.s }
-
+Item { width: 1; height: 10 * root.s }
         /**
          * Accent color: an optional user hex that wins over the Light/Dark default,
          * the wallpaper accent and the manual hue for every warm token (glow,

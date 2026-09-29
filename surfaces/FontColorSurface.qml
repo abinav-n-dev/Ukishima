@@ -98,8 +98,7 @@ SettingsSurface {
             showBack: true
         }
 
-        Item { width: 1; height: 12 * root.s }
-
+Item { width: 1; height: 10 * root.s }
         /**
          * Text colour: an optional user hex that recolours the primary text family
          * (cream/bright on the pill, the dock's title copy) over the scheme's.
