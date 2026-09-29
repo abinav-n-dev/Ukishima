@@ -1,37 +1,42 @@
 #!/bin/sh
-# Ukishima session lock — dispatches on Flags.lockMethod.
+# Ukishima session lock.
+#
+# One script, two locks. The pill's power menu, a keybind and hypridle all call
+# this; which lock you get is the `lockMethod` flag in the ukishima flags.json
+# (the same file the shell writes), so the pill and any keybind stay in sync:
 #
 #   "hyprlock"   → hyprlock, if it is actually installed
-#   "quickshell" → lock-qs.sh (the Quickshell lock, which falls back to
-#                  hyprlock by itself if Quickshell cannot lock)
+#   "quickshell" → the Quickshell lockscreen (lockscreen/shell.qml), which falls
+#                  back to hyprlock by itself if Quickshell cannot lock
 #
-# The flag is read from the ukishima flags.json (the same file the shell
-# writes), so the pill's power menu and any keybind that runs lock.sh stay in
-# sync.
+# It used to be two scripts. lock.sh was hyprlock-only; lock-qs.sh was an opt-in
+# alternative you picked by pointing `lock_cmd` at one or the other; and adding
+# the flag later folded that choice in here — which left lock-qs.sh behind as a
+# second front door whose own header still told you to point your idle locker
+# at it and thereby skip the flag, the probe and the guard below. Two entry
+# points for one decision is the same shape of mistake as the one the guard
+# exists to prevent. There is one entry point now.
 #
 # "hyprlock" is a hand-off, not a mode Ukishima configures. The repo ships no
 # hyprlock.conf and generates none, so choosing it discards every visual
 # setting on the LOCK surface — background, blur, avatar, indicators — in
 # favour of the user's own hyprlock.conf. It is also an external dependency
 # that may simply not be installed, so it is probed before use rather than
-# exec'd on faith. That probe used to be missing here, which meant a machine
+# exec'd on faith. That probe used to be missing, which meant a machine
 # without hyprlock ran `exec hyprlock`, got exit 127, and sat there unlocked.
 #
 # A missing hyprlock is never a reason to leave the session unlocked. The
 # Quickshell lock needs nothing beyond Quickshell itself, so a request for
-# hyprlock that cannot be honoured is downgraded to it and the downgrade is
+# hyprlock that cannot be honoured is downgraded to it, and the downgrade is
 # logged, not failed. Only when neither exists is this a real failure, and
 # then it says so on stderr.
-#
-# The downgrade note goes in this log rather than lock-qs.log because
-# lock-qs.sh truncates its own log on entry, which would eat it.
-#
-# The hyprlock path is also a singleton: a repeat request while a lock is up is
-# a logged no-op, and instances started outside this script are reaped. See
-# run_hyprlock below for why, and for the guard's fail-open rule.
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ukishima"
 LOG="$CACHE_DIR/lock.log"
+SHOT="$CACHE_DIR/lock-shot.png"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+LOCK_QML="$SCRIPT_DIR/../lockscreen/shell.qml"
+capture_pid=""
+mkdir -p "$CACHE_DIR" 2>/dev/null
 
 note() {
     mkdir -p "$CACHE_DIR" 2>/dev/null
@@ -45,10 +50,14 @@ if [ -f "$FLAGS_FILE" ]; then
     [ -n "$val" ] && METHOD="$val"
 fi
 
+QS_BIN="$(command -v quickshell 2>/dev/null || command -v qs 2>/dev/null)"
 have_hyprlock=0
 command -v hyprlock >/dev/null 2>&1 && have_hyprlock=1
+# The Quickshell lock needs both halves: a Quickshell to run and the config to
+# run it against. Probing only for one of them was how "quickshell" could be
+# selected on a machine that had neither.
 have_qs=0
-[ -x "$SCRIPT_DIR/lock-qs.sh" ] && have_qs=1
+[ -n "$QS_BIN" ] && [ -f "$LOCK_QML" ] && have_qs=1
 
 # Only one process can hold the Wayland session lock, so a second hyprlock can
 # never improve on a first: it either fails to take the lock, or stacks an
@@ -60,7 +69,7 @@ have_qs=0
 # process this script started. A live recorded pid means the session is already
 # locked and the request is a no-op; anything else is stale bookkeeping.
 #
-# Every failure path below still execs. Leaving the session unlocked to save
+# Every failure path below still locks. Leaving the session unlocked to save
 # 167 MiB would be the wrong trade, so the guard fails open at each step.
 PIDFILE="$CACHE_DIR/hyprlock.pid"
 
@@ -100,6 +109,91 @@ run_hyprlock() {
     exec hyprlock
 }
 
+# The Quickshell lock. Returns only on failure; every other outcome exits or
+# execs, so the caller's hyprlock fallback below is reached exactly when the
+# session still needs protecting.
+run_quickshell_lock() {
+    note "starting $QS_BIN -p $LOCK_QML"
+
+    # Pre-capture the desktop, the way hyprlock's `path = screenshot` does.
+    # grim has to finish BEFORE the lock covers the screen: a ScreencopyView
+    # inside ext-session-lock is racy on Hyprland/NVIDIA and usually comes
+    # back empty or torn.
+    #
+    # It does NOT have to finish before the lock is *requested*, though. Running
+    # grim in the foreground cost ~450ms of PNG encode with the session still
+    # unlocked and the desktop fully interactive — a real gap, not just a cosmetic
+    # one, and it is most of why locking felt slow. So grim runs concurrently with
+    # quickshell's startup: the lock is requested immediately, and LockSurface
+    # polls for the file and swaps it in when it lands (see grimShot in
+    # lockscreen/LockSurface.qml). Worst case the backdrop is the wallpaper for a
+    # few hundred milliseconds and then cross-fades to the screenshot.
+    #
+    # The old file is removed first so a capture that never arrives cannot be
+    # mistaken for a fresh one — otherwise a screenshot from an hour ago would
+    # silently appear.
+    rm -f "$SHOT"
+    if command -v grim >/dev/null 2>&1; then
+        (
+            grim "$SHOT" >>"$LOG" 2>&1 || note "grim failed, continuing without pre-capture"
+        ) &
+        capture_pid=$!
+    else
+        note "grim not found, continuing without pre-capture"
+    fi
+
+    # Quickshell parses and validates the QML before rendering, so it exits
+    # non-zero immediately if an import (e.g. a missing compiled module) cannot
+    # be resolved. If we exec'd it here, the hyprlock fallback below would be
+    # unreachable and the session would stay unlocked while appearing to lock.
+    # Run in the foreground instead.
+    "$QS_BIN" -p "$LOCK_QML" >>"$LOG" 2>&1
+    rc=$?
+    # Reap the background capture, if it is still running. A quick unlock can
+    # outlast it, and an orphan grim would keep writing lock-shot.png after this
+    # script is gone — landing on top of the *next* lock's capture.
+    if [ -n "$capture_pid" ]; then
+        wait "$capture_pid" 2>/dev/null
+        capture_pid=""
+    fi
+    if [ $rc -eq 0 ]; then
+        note "quickshell exited 0 — lock released cleanly"
+        exit 0
+    fi
+    # rc > 128 means quickshell was killed by a signal, which means it was ALIVE
+    # and holding a session lock when it died. That is not "locking failed" -- the
+    # compositor has already released the lock by the time the process is gone.
+    # Starting a second locker on top of that teardown is what crashes Hyprland,
+    # which is why the wait below is not optional. Re-lock with hyprlock so the
+    # session is not left wide open. This path deliberately bypasses the guard:
+    # the lock was granted and torn down, so there is no live instance to
+    # compare against and refusing here would be the one case that leaves the
+    # session open.
+    # Exclude 255 explicitly. A real signal death is 128+N, so it can never
+    # reach 255, but 255 numerically clears the `> 128` test -- and 255 is
+    # Quickshell's "config failed to load", which means nothing was ever
+    # locked. Without this, a config-load failure was reported as "lock was
+    # granted", slept a pointless second waiting for a teardown that was never
+    # coming, and then re-locked. It still ended up protected, so it looked
+    # fine, but the log lied and every fallback cost an extra second.
+    if [ $rc -gt 128 ] && [ $rc -ne 255 ]; then
+        note "quickshell killed by signal $((rc - 128)) -- lock was granted, waiting for teardown"
+        sleep 1
+        if command -v hyprctl >/dev/null 2>&1 && ! hyprctl version >/dev/null 2>&1; then
+            note "compositor is gone -- not re-locking"
+            exit $rc
+        fi
+        if [ "$have_hyprlock" = 1 ]; then
+            note "re-locking with hyprlock after clean teardown"
+            exec hyprlock
+        fi
+        exit $rc
+    fi
+    # 255 is Quickshell's "failed to load/validate the config". Nothing was ever
+    # locked, so the fallback is the only thing protecting the session.
+    note "quickshell exited $rc -- config never loaded, falling back to hyprlock"
+}
+
 if [ "$METHOD" = "hyprlock" ] && [ "$have_hyprlock" = 1 ]; then
     note "method=hyprlock -> hyprlock"
     run_hyprlock
@@ -109,16 +203,16 @@ if [ "$have_qs" = 1 ]; then
     if [ "$METHOD" = "hyprlock" ]; then
         note "method=hyprlock but hyprlock is not installed -> downgrading to the Quickshell lock"
     else
-        note "method=$METHOD -> lock-qs.sh"
+        note "method=$METHOD -> the Quickshell lock"
     fi
-    exec "$SCRIPT_DIR/lock-qs.sh"
+    run_quickshell_lock
 fi
 
 if [ "$have_hyprlock" = 1 ]; then
-    note "lock-qs.sh is missing or not executable -> hyprlock"
+    note "Quickshell lock unavailable or failed -> hyprlock"
     run_hyprlock
 fi
 
-note "ERROR no hyprlock and no $SCRIPT_DIR/lock-qs.sh — nothing to lock with"
-echo "lock.sh: no hyprlock installed and no $SCRIPT_DIR/lock-qs.sh — cannot lock" >&2
+note "ERROR no hyprlock installed and no Quickshell lockscreen at $LOCK_QML — nothing to lock with"
+echo "lock.sh: no hyprlock installed and no $LOCK_QML — cannot lock" >&2
 exit 1

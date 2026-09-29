@@ -58,7 +58,8 @@ Rectangle {
     property string currentWallpaper: ""
     readonly property string wallpaperSource: currentWallpaper.length > 0 ? currentWallpaper : wallpaperFallback
 
-    //* lock.sh redirects the lock's stderr into /tmp/ukishima-lock.log, so one
+    //* lock.sh redirects the lock's stderr into its own log
+    //* (${XDG_CACHE_HOME:-$HOME/.cache}/ukishima/lock.log), so one
     //* console.log per lock says exactly which file the backdrop resolved to and
     //* whether it came from the state file or the legacy fallback. Without it,
     //* "the lock shows the wrong wallpaper" is unanswerable from outside the
@@ -516,7 +517,7 @@ Rectangle {
 
             anchors.fill: parent
             //* Deliberately empty until the file is actually there.
-            //* lock-qs.sh runs grim concurrently with quickshell's startup so
+            //* lock.sh runs grim concurrently with quickshell's startup so
             //* the session locks without waiting ~450ms for a PNG encode. That
             //* means this file may not exist yet when the surface comes up.
             //* Binding `source` straight to the path made Qt latch onto the
