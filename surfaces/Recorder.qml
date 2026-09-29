@@ -389,7 +389,7 @@ PillSurface {
                     text: "録"
                     color: Theme.cream
                     font.family: Theme.fontJp
-                    font.weight: Font.Medium
+                    font.weight: Theme.fontJpWeight
                     font.pixelSize: 16 * root.s
                 }
                 Text {
@@ -1142,6 +1142,7 @@ PillSurface {
                     text: "録"
                     color: Theme.subtle
                     font.family: Theme.fontJp
+                    font.weight: Theme.fontJpWeight
                     font.pixelSize: 11 * root.s
                 }
                 Text {
@@ -1173,6 +1174,7 @@ PillSurface {
                     text: "払"
                     color: clearArea.containsMouse ? Theme.flameGlow : Theme.vermDeep
                     font.family: Theme.fontJp
+                    font.weight: Theme.fontJpWeight
                     font.pixelSize: 11 * root.s
                 }
                 Text {

@@ -42,7 +42,7 @@ Item {
         text: root.kanji
         color: Theme.dim
         font.family: Theme.fontJp
-        font.weight: Font.Medium
+        font.weight: Theme.fontJpWeight
         font.pixelSize: 13 * root.s
     }
 

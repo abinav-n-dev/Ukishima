@@ -416,7 +416,7 @@ DockPanel {
                         text: "探"
                         color: root.dim
                         font.family: Theme.fontJp
-                        font.weight: Font.Medium
+                        font.weight: Theme.fontJpWeight
                         font.pixelSize: 15 * root.s
                     }
 

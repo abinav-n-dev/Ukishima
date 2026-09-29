@@ -1996,7 +1996,7 @@ Item {
                     text: "時"
                     color: Theme.cream
                     font.family: Theme.fontJp
-                    font.weight: Font.Medium
+                    font.weight: Theme.fontJpWeight
                     font.pixelSize: 15 * pill.s
                     Behavior on opacity { NumberAnimation { duration: Motion.standard; easing.type: Motion.easeStandard } }
                 }

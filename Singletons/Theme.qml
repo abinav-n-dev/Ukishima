@@ -149,7 +149,38 @@ Singleton {
     property var fontFamilies: Qt.fontFamilies()
     function refreshFonts() { fontFamilies = Qt.fontFamilies(); }
     readonly property string font: (Flags.uiFont.length > 0 && fontFamilies.indexOf(Flags.uiFont) >= 0) ? Flags.uiFont : "Inter"
-    readonly property string fontJp: "Zen Kaku Gothic New"
+
+    /**
+     * Kanji face for the decorative glyphs, resolved against the installed
+     * families rather than hardcoded. A missing name is not cosmetic here:
+     * fontconfig answers "Zen Kaku Gothic New" with **Noto Sans CJK KR**, so
+     * asking for a Japanese face and not having it silently renders the marks in
+     * Korean glyph forms. Each entry is tried in order and the first one actually
+     * present wins; the tail is a family that ships with noto-cjk, so the
+     * fallback still resolves to a real face instead of a KR substitution.
+     */
+    readonly property var jpFamilies: ["Zen Kaku Gothic New", "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans JP"]
+    readonly property string fontJp: {
+        for (let i = 0; i < jpFamilies.length; i++) {
+            if (fontFamilies.indexOf(jpFamilies[i]) >= 0)
+                return jpFamilies[i];
+        }
+        return "Noto Sans CJK JP";
+    }
+
+    /**
+     * One weight for every kanji glyph, and the reason is memory rather than
+     * taste. A CJK family is a multi-weight .ttc collection, so each distinct
+     * weight a Text asks for maps a SEPARATE face, and Qt's font database never
+     * unmaps one it has loaded. The glyph sites were spread across Medium,
+     * Regular, Bold and DemiBold, which kept three Noto Sans CJK faces resident
+     * at once — 71.7 MiB — to draw ~25 single decorative marks. Pinning all of
+     * them to Medium, the weight most already used, measures 26.9 MiB: the one
+     * face they ask for, plus the one Qt's own CJK fallback opens when it has to
+     * substitute a glyph into bold latin text. The marks are 15-16px, so the
+     * weight difference is not readable anyway.
+     */
+    readonly property int fontJpWeight: Font.Medium
 
     /**
      * MPRIS trackArtists arrives as a JS array from some players and as a

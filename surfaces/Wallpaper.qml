@@ -1216,7 +1216,7 @@ PillSurface {
         color: Theme.ghost
         opacity: 0.55
         font.family: Theme.fontJp
-        font.weight: Font.Medium
+        font.weight: Theme.fontJpWeight
         font.pixelSize: 30 * root.s
     }
 

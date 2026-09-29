@@ -71,6 +71,7 @@ Item {
         text: srow.glyph
         color: srow.iconIdle
         font.family: Theme.fontJp
+        font.weight: Theme.fontJpWeight
         font.pixelSize: 15 * srow.s
     }
 

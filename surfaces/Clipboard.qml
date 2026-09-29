@@ -144,6 +144,7 @@ PillSurface {
                 text: "掃"
                 color: wipeBtn.tone
                 font.family: Theme.fontJp
+                font.weight: Theme.fontJpWeight
                 font.pixelSize: 12 * root.s
                 Behavior on color { ColorAnimation { duration: Motion.fast } }
             }

@@ -325,6 +325,7 @@ PillSurface {
             anchors.centerIn: parent
             text: skip.kanjiText
             font.family: Theme.fontJp
+            font.weight: Theme.fontJpWeight
             font.pixelSize: 11 * root.s
             color: skipArea.containsMouse ? Theme.cream : Theme.dim
             Behavior on color { ColorAnimation { duration: Motion.fast } }
@@ -827,6 +828,7 @@ PillSurface {
                     anchors.centerIn: parent
                     text: "循"
                     font.family: Theme.fontJp
+                    font.weight: Theme.fontJpWeight
                     font.pixelSize: 10 * root.s
                     color: root.loopNone ? Theme.dim : Theme.vermLit
                     Behavior on color { ColorAnimation { duration: Motion.fast } }
@@ -1012,7 +1014,7 @@ PillSurface {
                     color: Theme.bright
                     font.family: Theme.fontJp
                     font.pixelSize: 11 * root.s
-                    font.weight: Font.DemiBold
+                    font.weight: Theme.fontJpWeight
                 }
 
                 GlyphIcon {

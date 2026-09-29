@@ -276,7 +276,7 @@ PillSurface {
                     text: "報"
                     color: Theme.cream
                     font.family: Theme.fontJp
-                    font.weight: Font.Medium
+                    font.weight: Theme.fontJpWeight
                     font.pixelSize: 16 * root.s
                 }
                 Text {
@@ -342,7 +342,7 @@ PillSurface {
                             color: clearArea.containsMouse ? Theme.vermLit : Theme.vermDim
                             font.family: Theme.fontJp
                             font.pixelSize: 9 * root.s
-                            font.weight: Font.Bold
+                            font.weight: Theme.fontJpWeight
                         }
                         GlyphIcon {
                             anchors.verticalCenter: parent.verticalCenter
@@ -594,7 +594,7 @@ PillSurface {
                 color: Theme.ghost
                 opacity: 0.55
                 font.family: Theme.fontJp
-                font.weight: Font.Medium
+                font.weight: Theme.fontJpWeight
                 font.pixelSize: 32 * root.s
             }
             Text {

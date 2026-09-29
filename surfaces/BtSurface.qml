@@ -231,7 +231,7 @@ PillSurface {
                 text: "歯"
                 color: Theme.cream
                 font.family: Theme.fontJp
-                font.weight: Font.Medium
+                font.weight: Theme.fontJpWeight
                 font.pixelSize: 16 * root.s
             }
             Text {
