@@ -298,20 +298,80 @@ Rectangle {
             }
         }
     }
-    // exit fade on successful unlock (shell sets closing, then quits)
-    opacity: context.closing ? 0 : 1
+    // ── Releasing the lock ──
+    //
+    //* The unlock used to fade the whole surface to opacity 0, which revealed
+    //* the WlSessionLockSurface's own #0b0d0c — a 40ms hold of solid black
+    //* between the end of the fade and the lock actually dropping, visible as a
+    //* black flash on every unlock. Nothing fades to nothing now. The lock
+    //* *becomes* the desktop: the furniture leaves, and the blur relaxes until
+    //* the picture is the desktop, so the compositor's handover lands on a
+    //* frame that is already what is behind it. impasto does the same thing
+    //* with its `clearing` property.
+    //
+    //* One value drives the whole release so its parts cannot drift apart.
+    readonly property bool closing: context.closing
+    property real release: 0
+    readonly property int releaseMs: 200
 
-    Behavior on opacity {
-        NumberAnimation {
-            duration: 200
-            easing.type: Easing.OutCubic
+    onClosingChanged: {
+        if (closing)
+            releaseAnim.start();
+    }
+
+    NumberAnimation {
+        id: releaseAnim
+
+        target: root
+        property: "release"
+        from: 0
+        to: 1
+        //* Deliberately LINEAR. The easing that makes this look smooth lives in
+        //* blurAt(), because the quantity that has to be paced evenly is the
+        //* perceived blur, not the blurMax number.
+        duration: root.reduceMotion ? 0 : root.releaseMs
+        easing.type: Easing.Linear
+    }
+
+    //* How "still a lock screen" this is right now. The furniture reads this
+    //* directly; the backdrop reads the curve below.
+    readonly property real held: 1 - Math.max(0, Math.min(1, root.release))
+
+    //* Perceived blur is very non-linear in blurMax. Measured on a real
+    //* 1920x1200 capture, recording the share of high-frequency detail that
+    //* survives each value:
+    //*
+    //*     blurMax  64    48    32    24    16    12     8     4     2     0
+    //*     detail  .19   .22   .30   .37   .50   .57   .67   .80   .87  1.00
+    //*
+    //* Ramping blurMax linearly spends the first ~120ms of a 200ms release in
+    //* the flat top where .19 -> .30, i.e. where nothing visibly happens, and
+    //* then snaps from .30 to sharp in the last 80ms. So the release drives the
+    //* *perceived* progress and blurAt() inverts this measurement to get the
+    //* blurMax that produces it, which paces what the eye actually sees.
+    function blurAt(p) {
+        const t = Math.max(0, Math.min(1, p));
+        const b = root.blurMax;
+        //* p -> blurMax, sampled from the table above.
+        const steps = [ [0.0, 1.0], [0.04, 0.75], [0.14, 0.50], [0.22, 0.375],
+            [0.38, 0.25], [0.47, 0.1875], [0.59, 0.125], [0.75, 0.0625],
+            [0.84, 0.03125], [1.0, 0.0] ];
+        if (t <= steps[0][0])
+            return b * steps[0][1];
+        for (let i = 1; i < steps.length; ++i) {
+            if (t <= steps[i][0]) {
+                const lo = steps[i - 1];
+                const hi = steps[i];
+                const f = (t - lo[0]) / (hi[0] - lo[0]);
+                return b * (lo[1] + f * (hi[1] - lo[1]));
+            }
         }
-
+        return 0;
     }
 
     // entrance choreography, Caelestia initAnim style:
-    // backdrop settles (fade + zoom + focus pull), clock drifts down,
-    // auth cluster rises — staggered so the lock "assembles" smoothly
+    // the clock drifts down and the auth cluster rises, staggered so the
+    // lock "assembles" smoothly
     Component.onCompleted: {
         //* No capture polling to arm: lock.sh finished grim before spawning
         //* this process, so the file is already on disk and grimSource binds
@@ -332,10 +392,18 @@ Rectangle {
         if (entranceStarted)
             return;
         entranceStarted = true;
-        if (reduceMotion)
-            console.log("[lock] reduceMotion on -- entrance skipped");
-        else
-            showAnim.start();
+        if (reduceMotion) {
+            //* Snap to the end state instead of skipping the entrance. Skipping
+            //* was a real bug: every element derives its opacity from
+            //* `entrance`, and nothing but the animation ever moved it, so a
+            //* reduced-motion lock screen had no clock, no password field and
+            //* no indicators — the UI needed to actually unlock, gone.
+            //* Honouring reduced motion means no *motion*, not no *content*.
+            entrance = 1;
+            console.log("[lock] reduceMotion on -- entrance applied without motion");
+            return;
+        }
+        showAnim.start();
     }
 
     //* If the flags file never arrives (missing, unreadable, a partial write),
@@ -348,110 +416,58 @@ Rectangle {
         onTriggered: root.startEntrance()
     }
 
-    //* Entrance choreography: a quick backdrop fade, then the clock and the
-    //* auth cluster settling in just behind it.
+    //* Entrance choreography: the clock drifts down, the auth cluster rises,
+    //* the corner indicators follow — staggered so the lock "assembles"
+    //* smoothly, all inside ~380ms.
     //*
-    //* These were 450/750/90/180/140ms over 500-600ms eases, which put the
-    //* last element at 780ms after the first frame. Combined with process
-    //* startup that is a ~2s lock, and the long tail is why it read as
-    //* sluggish rather than merely brief. Now the whole thing lands in ~380ms
-    //* — still staggered enough to feel assembled, short enough not to wait on.
+    //* These were 450/750/90/180/140ms over 500-600ms eases, which put the last
+    //* element at 780ms after the first frame. Combined with process startup
+    //* that is a ~2s lock, and the long tail is why it read as sluggish rather
+    //* than merely brief.
     //*
-    //* The backdrop's `scale` zoom is gone. bgLayer contains a full-screen
-    //* MultiEffect, so animating its scale re-rasterised a 1920x1200 blur on
-    //* every frame of a 750ms animation — the single most expensive thing in
-    //* the entrance, for a 5% zoom on an already-blurred image that nobody
-    //* could see moving. The opacity fade alone carries it.
-    ParallelAnimation {
+    //* The backdrop is not animated at all any more. It used to fade from 0
+    //* over 220ms, which held the WlSessionLockSurface's #0b0d0c on screen —
+    //* black on black — for that whole window, and that was the flash on the
+    //* way in. (Its `scale` zoom had already gone: bgLayer holds a full-screen
+    //* MultiEffect, so animating scale re-rasterised a 1920x1200 blur on every
+    //* frame, for a 5% zoom on an image nobody could see moving.) lock.sh
+    //* finishes the capture before this process starts, so there is nothing to
+    //* reveal; the furniture carries the entrance by itself.
+    //
+    //* One master value rather than a NumberAnimation per element. An animation
+    //* assigns its target property directly, which BREAKS that property's
+    //* declarative binding — so animating `clockCol.opacity` and also binding
+    //* it to `* root.held` would quietly stop working the instant the
+    //* entrance finished, stranding the clock and the password field on screen
+    //* through the unlock. Every element below stays a plain expression off
+    //* `entrance` and `held`, so the unlock fade is exact and free.
+    property real entrance: 0
+
+    //* Map the master clock onto one element's window. `from`/`to` are
+    //* fractions of the entrance, `peak` the value it settles at.
+    //*
+    //* The OutCubic is applied per stage, not to the master clock, so each
+    //* element keeps exactly the curve it had as a standalone NumberAnimation.
+    //* Easing the master and remapping linearly would flatten every stage into
+    //* the same shape.
+    //*
+    //* Windows are the original absolute milliseconds divided by entranceMs:
+    //* clock 40-240 (opacity) and 40-320 (drift), auth 80-280 and 80-360,
+    //* indicators 120-320.
+    function stage(from, to, peak) {
+        const u = Math.max(0, Math.min(1, (root.entrance - from) / (to - from)));
+        return (1 - Math.pow(1 - u, 3)) * peak;
+    }
+    readonly property int entranceMs: 380
+
+    NumberAnimation {
         id: showAnim
 
-        NumberAnimation {
-            target: bgLayer
-            property: "opacity"
-            from: 0
-            to: 1
-            duration: 220
-            easing.type: Easing.OutCubic
-        }
-
-        SequentialAnimation {
-            PauseAnimation {
-                duration: 40
-            }
-
-            ParallelAnimation {
-                NumberAnimation {
-                    target: clockCol
-                    property: "opacity"
-                    from: 0
-                    to: 1
-                    duration: 200
-                    easing.type: Easing.OutCubic
-                }
-                NumberAnimation {
-                    target: clockShift
-                    property: "y"
-                    from: -14
-                    to: 0
-                    duration: 280
-                    easing.type: Easing.OutCubic
-                }
-            }
-
-        }
-
-        SequentialAnimation {
-            PauseAnimation {
-                duration: 80
-            }
-
-            ParallelAnimation {
-                NumberAnimation {
-                    target: authCol
-                    property: "opacity"
-                    from: 0
-                    to: 1
-                    duration: 200
-                    easing.type: Easing.OutCubic
-                }
-                NumberAnimation {
-                    target: authShift
-                    property: "y"
-                    from: 16
-                    to: 0
-                    duration: 280
-                    easing.type: Easing.OutCubic
-                }
-            }
-
-        }
-
-        SequentialAnimation {
-            PauseAnimation {
-                duration: 120
-            }
-
-            ParallelAnimation {
-                NumberAnimation {
-                    target: lockBattery
-                    property: "opacity"
-                    from: 0
-                    to: 1
-                    duration: 200
-                    easing.type: Easing.OutCubic
-                }
-                NumberAnimation {
-                    target: lockWifi
-                    property: "opacity"
-                    from: 0
-                    to: 0.9
-                    duration: 200
-                    easing.type: Easing.OutCubic
-                }
-            }
-
-        }
-
+        target: root
+        property: "entrance"
+        from: 0
+        to: 1
+        duration: root.entranceMs
     }
 
     // ── Background ──
@@ -461,10 +477,15 @@ Rectangle {
         id: bgLayer
 
         anchors.fill: parent
-        opacity: 0
-        //* No `scale` here any more. It existed only as the start value for the
-        //* entrance zoom, which is gone. Leaving 1.05 in place with nothing to
-        //* animate it back would have left the backdrop permanently zoomed in.
+        //* Opaque from the very first frame, and deliberately NOT animated.
+        //* This used to start at 0 and fade in over 220ms, which meant the
+        //* WlSessionLockSurface's own #0b0d0c was on screen — black on black —
+        //* for that whole window even though the capture had been finished and
+        //* decoded before this process was even spawned. That was the flash on
+        //* the way in. The capture is guaranteed present now, so there is
+        //* nothing to reveal and nothing to wait for; the clock and the auth
+        //* cluster still animate in, which is where the entrance reads from.
+        opacity: 1
 
         // 1) grim pre-capture — most reliable, no ext-session-lock race
         Image {
@@ -515,12 +536,22 @@ Rectangle {
             source: grimShot.status === Image.Ready ? grimShot : bgShot
             visible: root.background === "capture" && (grimShot.status === Image.Ready || bgShot.hasContent)
             autoPaddingEnabled: false
-            blurEnabled: root.blurMax > 0
+            //* The blur RELAXES on the way out instead of the surface fading to
+            //* nothing. See the release notes above; blurAt() paces it so the
+            //* change is even rather than back-loaded into the final 80ms.
+            //*
+            //* No Behavior on these: they are bound to `release`, which is
+            //* already animated. A Behavior here would re-animate the same
+            //* value on top of that and the two would fight.
+            blurEnabled: root.blurAt(root.release) > 0
             blur: 1
-            blurMax: root.blurMax
+            blurMax: root.blurAt(root.release)
             blurMultiplier: 1
-            saturation: -0.08
-            brightness: -0.06
+            //* Saturation and brightness are linear perceptual effects, so a
+            //* straight ramp from `held` is the right shape for them — no
+            //* curve needed.
+            saturation: -0.08 * root.held
+            brightness: -0.06 * root.held
         }
 
         // 3) Wallpaper — the explicit "wallpaper" choice, and the fallback when
@@ -604,11 +635,16 @@ Rectangle {
         anchors.top: parent.top
         anchors.topMargin: parent.height * 0.13
         spacing: 4
-        opacity: 0
+        //* 40-240ms of the entrance, and back down with `held` on unlock.
+        opacity: root.stage(40 / root.entranceMs, 240 / root.entranceMs, 1) * root.held
 
         transform: Translate {
             id: clockShift
-            y: -22
+            //* Drifts the remaining 22px to rest over 40-320ms. The base y was
+            //* -22 while the old animation started from -14, so the clock
+            //* visibly jumped 8px the instant the entrance began; the drift now
+            //* continues from where the element actually sits.
+            y: -22 * (1 - root.stage(40 / root.entranceMs, 320 / root.entranceMs, 1))
         }
 
         Label {
@@ -671,7 +707,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.topMargin: 26
         anchors.rightMargin: 28
-        opacity: 0
+        opacity: root.stage(120 / root.entranceMs, 320 / root.entranceMs, 1) * root.held
         // The component decides whether it has anything to show; showBattery
         // (LOCK surface) is the user's master switch on top of that.
         visible: root.showBattery && present
@@ -686,7 +722,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.topMargin: 26
         anchors.leftMargin: 28
-        opacity: 0
+        opacity: root.stage(120 / root.entranceMs, 320 / root.entranceMs, 0.9) * root.held
         // Same arrangement as the battery: its own presence check, gated by the
         // showWifi flag.
         visible: root.showWifi && wifiDev !== null
@@ -796,11 +832,14 @@ Rectangle {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 72
         spacing: 9
-        opacity: 0
+        //* 80-280ms, behind the clock, and back down with `held`.
+        opacity: root.stage(80 / root.entranceMs, 280 / root.entranceMs, 1) * root.held
 
         transform: Translate {
             id: authShift
-            y: 26
+            //* Rises its remaining 26px over 80-360ms. Same 10px jump as the
+            //* clock used to have; see clockShift.
+            y: 26 * (1 - root.stage(80 / root.entranceMs, 360 / root.entranceMs, 1))
         }
 
         // avatar — ClippingRectangle clips to radius (plain clip ignores it)
