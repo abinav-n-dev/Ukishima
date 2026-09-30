@@ -32,10 +32,13 @@
 # then it says so on stderr.
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ukishima"
 LOG="$CACHE_DIR/lock.log"
-SHOT="$CACHE_DIR/lock-shot.png"
+# JPEG, not PNG. The backdrop is drawn blurred and then never looked at
+# closely, so PNG's lossless encode buys nothing and costs a great deal:
+# measured here across two outputs, ~830ms and 1.3 MB for PNG against ~50ms
+# and 290 KB for JPEG at q90. That gap is why the capture used to arrive late.
+SHOT="$CACHE_DIR/lock-shot.jpg"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 LOCK_QML="$SCRIPT_DIR/../lockscreen/shell.qml"
-capture_pid=""
 mkdir -p "$CACHE_DIR" 2>/dev/null
 
 note() {
@@ -120,24 +123,37 @@ run_quickshell_lock() {
     # inside ext-session-lock is racy on Hyprland/NVIDIA and usually comes
     # back empty or torn.
     #
-    # It does NOT have to finish before the lock is *requested*, though. Running
-    # grim in the foreground cost ~450ms of PNG encode with the session still
-    # unlocked and the desktop fully interactive — a real gap, not just a cosmetic
-    # one, and it is most of why locking felt slow. So grim runs concurrently with
-    # quickshell's startup: the lock is requested immediately, and LockSurface
-    # polls for the file and swaps it in when it lands (see grimShot in
-    # lockscreen/LockSurface.qml). Worst case the backdrop is the wallpaper for a
-    # few hundred milliseconds and then cross-fades to the screenshot.
+    # It now also finishes before quickshell is *spawned*, which is the whole
+    # fix for a lock that felt slow. This used to run grim concurrently with
+    # quickshell's startup so the session would lock without waiting on the
+    # encode, on the reasoning that a foreground grim cost ~450ms with the
+    # desktop still interactive. That number was a PNG encode; as JPEG the
+    # same two-output capture measures ~50ms, far less than the ~271ms the
+    # lockscreen process then spends parsing QML before it can show anything.
+    # Paying ~50ms to have the picture already on disk when the first frame is
+    # mapped costs less wall-clock than overlapping the two did, and it removes
+    # the failure the overlap created: the surface came up before the file
+    # existed, so LockSurface polled a half-written PNG, re-read it on a 25ms
+    # timer, latched status=Error on every truncated attempt and needed 13
+    # tries and ~300ms to attach (see the "capture attached after 300ms
+    # (attempt 13)" line in the log). The screen showed the wallpaper first and
+    # cross-faded to the screenshot after, which is the visible stall.
+    #
+    # Ordering it this way also means the screenshot cannot contain the lock
+    # surface itself, which is inherent to capturing after the lock is up.
     #
     # The old file is removed first so a capture that never arrives cannot be
     # mistaken for a fresh one — otherwise a screenshot from an hour ago would
     # silently appear.
     rm -f "$SHOT"
     if command -v grim >/dev/null 2>&1; then
-        (
-            grim "$SHOT" >>"$LOG" 2>&1 || note "grim failed, continuing without pre-capture"
-        ) &
-        capture_pid=$!
+        # grim hangs rather than failing when an output is powered off, and
+        # this now runs on the critical path, so a hang would stop the lock
+        # from ever being requested. Cap it and carry on without a backdrop.
+        if ! timeout 3 grim -t jpeg -q 90 "$SHOT" >>"$LOG" 2>&1; then
+            note "grim failed or timed out (rc=$?), continuing without pre-capture"
+            rm -f "$SHOT"
+        fi
     else
         note "grim not found, continuing without pre-capture"
     fi
@@ -149,13 +165,6 @@ run_quickshell_lock() {
     # Run in the foreground instead.
     "$QS_BIN" -p "$LOCK_QML" >>"$LOG" 2>&1
     rc=$?
-    # Reap the background capture, if it is still running. A quick unlock can
-    # outlast it, and an orphan grim would keep writing lock-shot.png after this
-    # script is gone — landing on top of the *next* lock's capture.
-    if [ -n "$capture_pid" ]; then
-        wait "$capture_pid" 2>/dev/null
-        capture_pid=""
-    fi
     if [ $rc -eq 0 ]; then
         note "quickshell exited 0 — lock released cleanly"
         exit 0

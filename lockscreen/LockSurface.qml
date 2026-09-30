@@ -47,7 +47,8 @@ Rectangle {
     readonly property bool avatarWanted: facePath.length > 0
     // grim pre-capture from lock.sh (hyprlock screenshot equivalent),
     // then live ukishima wallpaper, then static fallback
-    readonly property string lockShot: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/ukishima/lock-shot.png"
+    // .jpg because lock.sh captures with `grim -t jpeg`; see the note there.
+    readonly property string lockShot: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/ukishima/lock-shot.jpg"
     readonly property string stateWallpaper: (Quickshell.env("XDG_STATE_HOME") || (home + "/.local/state")) + "/ukishima-wallpaper"
     readonly property string wallpaperFallback: home + "/Pictures/Wallpapers/current_wallpaper.jpg"
     //* The wallpaper the shell is actually showing, read from the same state
@@ -83,19 +84,17 @@ Rectangle {
         if (background !== "capture")
             return;
         let layer;
-        let settled = true;
         if (grimShot.status === Image.Ready)
             layer = "grim screenshot " + lockShot + " (loaded, blur=" + blurMax + ")";
         else if (bgShot.hasContent)
             layer = "live screencopy blur=" + blurMax;
         else if (grimSource === "")
-            // Still polling for the concurrent grim. Expected, not a failure.
-            layer = "capture pending " + captureWaited + "ms — showing wallpaper " + wallpaperSource;
+            layer = "no capture file — showing wallpaper " + wallpaperSource;
         else
             layer = "NO CAPTURE (" + lockShot + " status=" + grimShot.status + ") — showing wallpaper " + wallpaperSource;
-        if (settled && root.captureLogged)
+        if (root.captureLogged)
             return;
-        root.captureLogged = settled;
+        root.captureLogged = true;
         console.log("[lock] capture " + why + ": " + layer);
     }
 
@@ -128,72 +127,27 @@ Rectangle {
     //* live wallpaper, "solid" paints the opaque backdrop colour.
     property string background: "capture"
 
-    //* Empty until the concurrent grim capture lands on disk. See grimShot.
-    property string grimSource: ""
-    property int grimVersion: 0
-    property int captureWaitMs: 4000
-    property int captureWaited: 0
-    //* Set once the capture is attached, so grimShot can fade up over the
-    //* backdrop instead of popping in.
-    property bool grimFaded: false
-    //* True while still waiting on the concurrent grim. Distinguishes "not
-    //* here yet" from "never going to arrive", so the wallpaper is only used
-    //* as a last resort.
-    property bool capturePending: true
-
-    //* Try to attach the capture, retrying until it decodes.
+    //* Bound directly to the capture lock.sh took BEFORE this process was
+    //* spawned, so the file is already complete and decodable by the time the
+    //* first frame is mapped. This replaces a poll that re-read the file every
+    //* 25ms with a fresh ?v= cache-buster until it decoded -- 13 attempts and
+    //* ~300ms in practice, because each retry landed on grim's half-written
+    //* PNG and latched status=Error. Nothing here needs retrying any more.
     //*
-    //* Qt gives no "file appeared" signal for an arbitrary path, and a
-    //* FileView watch cannot be armed on a file that does not exist yet. So
-    //* this polls, and each attempt uses a different URL (?v=N) to defeat the
-    //* image cache. That cache-buster is load-bearing: binding `source` to a
-    //* path that is not there yet latches the Image at status=Error, and it
-    //* never re-reads that URL even after the file lands. Measured here --
-    //* missing file stayed Error forever; a retry with ?v=2 went to Ready.
-    //*
-    //* Retrying on decode failure rather than on a file-size check is
-    //* deliberate. grim writes the PNG in place, so a retry can land
-    //* mid-encode and read a truncated file. That is safe: a PNG without its
-    //* IEND chunk will not decode, so the attempt fails and the next one tries
-    //* again. Only a complete file reaches status=Ready.
-    function tryLoadCapture() {
-        if (grimSource !== "")
-            return;
-        grimVersion++;
-        grimSource = "file://" + lockShot + "?v=" + grimVersion;
-
-        if (grimShot.status === Image.Ready) {
-            grimPoll.stop();
-            grimFaded = true;
-            capturePending = false;
-            console.log("[lock] capture attached after " + captureWaited + "ms (attempt " + grimVersion + ")");
-            reportCapture("attached");
-            return;
-        }
-        // Not decodable yet. Clear it so the next tick makes a genuinely new
-        // attempt; the backdrop stays on the plain colour meanwhile.
-        grimSource = "";
-        captureWaited += grimPoll.interval;
-        if (captureWaited >= captureWaitMs) {
-            grimPoll.stop();
-            //* Genuinely never arriving, so the wallpaper is now the right
-            //* thing to show.
-            capturePending = false;
-            console.log("[lock] capture never decoded after " + captureWaited + "ms -- falling back to the wallpaper");
-            reportCapture("timeout");
-        }
-    }
+    //* No existence pre-check: Quickshell's FileView has no `exists` function
+    //* in any released version (verified against the 0.2.x/0.3.x docs), so
+    //* guarding the URL with one would throw and leave the capture permanently
+    //* unbound. A missing file is not a special case to predict anyway -- bind
+    //* the URL and let the Image report status=Error, which the wallpaper
+    //* layer behind already treats as "no capture".
+    readonly property string grimSource: background === "capture"
+        ? "file://" + lockShot
+        : ""
 
     //* Re-report if the mode changes after load, so a lock that starts in the
     //* default and is then pointed at "capture" still says what it painted.
     onBackgroundChanged: {
         root.captureLogged = false;
-        //* The mode is applied from the flags file after onCompleted, so the
-        //* poll armed there may have been skipped (the default is "capture",
-        //* but an explicit "solid" would have suppressed it). Arm it now that
-        //* capture is actually selected.
-        if (background === "capture" && grimSource === "" && !grimPoll.running)
-            grimPoll.start();
         root.reportCapture("mode=" + background);
     }
 
@@ -359,8 +313,9 @@ Rectangle {
     // backdrop settles (fade + zoom + focus pull), clock drifts down,
     // auth cluster rises — staggered so the lock "assembles" smoothly
     Component.onCompleted: {
-        if (background === "capture" && grimSource === "")
-            grimPoll.start();
+        //* No capture polling to arm: lock.sh finished grim before spawning
+        //* this process, so the file is already on disk and grimSource binds
+        //* straight to it.
         //* The entrance is NOT started here. reduceMotion lives in the shared
         //* flags file, which loads asynchronously, so at onCompleted it is
         //* still the default `false` -- starting the animation then ran the
@@ -516,33 +471,18 @@ Rectangle {
             id: grimShot
 
             anchors.fill: parent
-            //* Deliberately empty until the file is actually there.
-            //* lock.sh runs grim concurrently with quickshell's startup so
-            //* the session locks without waiting ~450ms for a PNG encode. That
-            //* means this file may not exist yet when the surface comes up.
-            //* Binding `source` straight to the path made Qt latch onto the
-            //* missing file, report status=Error, and never look again — the
-            //* screenshot then never appeared no matter how long grim took.
-            //* An empty source stays Null and retryable; grimPoll sets it the
-            //* moment the file lands.
+            //* lock.sh finishes grim BEFORE spawning this process, so by the
+            //* time this binds, the file is complete on disk. That is the
+            //* whole point: this used to bind while grim was still encoding,
+            //* latch status=Error on a truncated read, and need a timed poll
+            //* with a cache-busted URL to recover. An empty source is now only
+            //* the genuine no-capture case (grim missing or failed), which the
+            //* wallpaper layer behind already handles.
             source: root.grimSource
             fillMode: Image.PreserveAspectCrop
             asynchronous: false
             cache: false
             visible: root.background === "capture"
-            //* The capture can land a few hundred milliseconds after the
-            //* surface is already up, so it must not simply appear. Without
-            //* this it popped in over the wallpaper mid-entrance, which read
-            //* as a glitch rather than a screenshot settling.
-            opacity: root.grimFaded ? 1 : 0
-
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: root.reduceMotion ? 0 : 180
-                    easing.type: Easing.OutCubic
-                }
-
-            }
 
             //* A grim failure and a not-yet-decoded file look identical on
             //* screen, and the startup report can land before the decode
@@ -550,20 +490,6 @@ Rectangle {
             onStatusChanged: root.reportCapture("grimShot status=" + status)
         }
 
-        //* Watch for the concurrent grim to finish. A missing file is not a
-        //* failure here — it is the expected state for the first few hundred
-        //* milliseconds of every lock. Give up after a bounded window so a
-        //* grim that never lands settles on the wallpaper instead of polling
-        //* for the lifetime of the lock.
-        Timer {
-            id: grimPoll
-
-            interval: 25
-            repeat: root.grimSource === ""
-            running: root.background === "capture" && root.grimSource === ""
-
-            onTriggered: root.tryLoadCapture()
-        }
 
         // 2) Per-screen live capture when grim missing (Caelestia screencopyBackground).
         // live:false = single frame, avoids DPMS/wake crash loop.
@@ -603,18 +529,16 @@ Rectangle {
             id: wallpaperShot
 
             anchors.fill: parent
-            //* Only ever a fallback once the capture has actually failed, not
-            //* while it is still being waited on. grim now runs concurrently
-            //* with quickshell's startup, so for the first ~100-300ms of
-            //* every lock grimShot is legitimately not ready yet — and this
-            //* condition was true during exactly that window. The result was
-            //* the wallpaper flashing up for a split second and then being
-            //* covered by the screenshot, which reads as a glitch rather than
-            //* a lock. Wait with the plain backdrop colour instead, and only
-            //* bring the wallpaper in if grim genuinely never produced
-            //* anything.
+            //* Only ever a fallback once the capture has actually failed, never
+            //* speculatively. This used to test `!root.capturePending`, which
+            //* was true during exactly the window where grim was still writing
+            //* the file — so the wallpaper flashed for a split second and was
+            //* then covered by the screenshot. lock.sh now completes the
+            //* capture before this process starts, so there is no wait window
+            //* left to guard against: if the file is not here, grim genuinely
+            //* produced nothing.
             visible: root.background === "wallpaper"
-                || (root.background === "capture" && !root.capturePending && grimShot.status !== Image.Ready && !bgShot.hasContent)
+                || (root.background === "capture" && grimShot.status !== Image.Ready && !bgShot.hasContent)
             source: "file://" + root.wallpaperSource
             fillMode: Image.PreserveAspectCrop
             //* Decode at screen resolution, never at the file's native size.
