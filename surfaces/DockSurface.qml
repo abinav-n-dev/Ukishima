@@ -89,6 +89,18 @@ DockPanel {
     property int focusIndex: 0
 
     /**
+     * The picker's natural height: the sum of its rows' own heights. See the
+     * note on `appsSection` — the Column's `implicitHeight` cannot be trusted
+     * here because the panel keeps the whole tree invisible while closed.
+     */
+    readonly property real appsNaturalHeight: {
+        var h = 0;
+        for (var i = 0; i < appsBody.children.length; i++)
+            if (appsBody.children[i]) h += appsBody.children[i].height;
+        return h;
+    }
+
+    /**
      * Window position of the last hover event allowed to move the highlight.
      * Rows sliding under a stationary cursor during keyboard scrolling repeat
      * the same window point and must not steal the selection.
@@ -218,7 +230,6 @@ DockPanel {
             appSearch.text = "";
         } else {
             root.focusIndex = 0;
-            Qt.callLater(appSearch.forceActiveFocus);
         }
     }
 
@@ -285,20 +296,6 @@ DockPanel {
              * page now, so there is no level to go back to — the header is
              * closing the panel, and it echoes the gear that opened it. */
             showBack: false
-        }
-
-        /**
-         * The header strip closes the panel. On the pill this gesture is handled
-         * one level up by the surface stack; the dock's panel is the top of its
-         * own stack, so the close belongs to the page.
-         */
-        MouseArea {
-            width: parent.width
-            height: 22 * root.s
-            y: -root.padTop * root.s
-            z: 1
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.requestClose()
         }
 
         Item { width: 1; height: 10 * root.s }
@@ -379,11 +376,21 @@ DockPanel {
          * the panel grows and shrinks around it instead of jumping, and the
          * frame is capped so a long list cannot push the panel off the top of
          * the screen — the list scrolls inside it.
+         *
+         * Height summed from the rows' OWN heights, not read off the Column's
+         * `implicitHeight`. While the panel is closed the whole tree is
+         * invisible, a Column computes its implicitHeight once in that state
+         * and never re-measures when it becomes visible again — so the stale
+         * 24px (just the four `width:1` spacers) won the binding, the section
+         * opened to 24px, and everything below the search box was clipped away.
+         * Every row here has an explicit height, so the sum is valid hidden or
+         * not. Verified: plain Column = 326, the same Column under a
+         * `visible: height > 0` parent = stuck.
          */
         Item {
             id: appsSection
             width: parent.width
-            height: root.appsOpen ? appsBody.implicitHeight : 0
+            height: root.appsOpen ? root.appsNaturalHeight : 0
             clip: true
             visible: height > 0
             Behavior on height {
@@ -394,6 +401,15 @@ DockPanel {
                 root.query = "";
                 appSearch.text = "";
             }
+
+            /**
+             * Take the keyboard here, not from `setAppsOpen`: the section opens
+             * with an animated height, so a call posted right after `appsOpen`
+             * flips still lands while `height` is 0 and `visible` false, and a
+             * focus call on an invisible item is dropped. This fires on the tick
+             * the section actually exists.
+             */
+            onVisibleChanged: if (visible) appSearch.forceActiveFocus()
 
             Column {
                 id: appsBody
@@ -454,9 +470,16 @@ DockPanel {
                                 // Escape collapses the list and gives the row
                                 // its focus back, so the keyboard never gets
                                 // stranded inside a section it cannot leave.
+                                //
+                                // Through `reportRowHover`, not by assigning
+                                // `root.kbIndex` / `root.focusRowItem`: those
+                                // are READ-ONLY aliases of `nav` on DockPanel,
+                                // so the direct assignment threw a TypeError
+                                // and the row never got its focus back.
+                                // reportRowHover is the same call the pointer
+                                // makes to park the cursor on a row.
                                 root.setAppsOpen(false);
-                                root.kbIndex = root.nav.rowIndexOf(dockAppsRow);
-                                root.focusRowItem = dockAppsRow;
+                                root.reportRowHover(dockAppsRow, true);
                                 e.accepted = true;
                             }
                         }
@@ -936,5 +959,26 @@ DockPanel {
                 onToggled: Flags.dockMinimal = !Flags.dockMinimal
             }
         }
+    }
+
+    /**
+     * The header strip closes the panel. On the pill this gesture is handled
+     * one level up by the surface stack; the dock's panel is the top of its
+     * own stack, so the close belongs to the page.
+     *
+     * A SIBLING of the content Column, not a child of it: as a child the Column
+     * laid this out as its own 22px row — Column overrides a child's `y`, so the
+     * offset it was given did nothing and the strip pushed every row 22px
+     * further from the title. Anchored to the top instead, it covers the pad and
+     * the header and costs the layout nothing.
+     */
+    MouseArea {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: (root.padTop + 22) * root.s
+        z: 1
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.requestClose()
     }
 }
